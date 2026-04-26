@@ -11,10 +11,18 @@ console = Console()
 
 def play_with_mpv(direct_url):
   base_path = os.path.dirname(os.path.abspath(__file__))
-  folder_mpv = os.path.join(base_path, 'mpv')
-  path_ke_mpv = os.path.join(folder_mpv, 'mpv.exe') 
+  path_ke_mpv = os.path.join(base_path, 'mpv', 'mpv.exe')
+  
   if not os.path.exists(path_ke_mpv):
-    return False, f"File mpv.exe tidak ditemukan."
+    path_ke_mpv = os.path.join(base_path, 'mpv.exe')
+    
+  if not os.path.exists(path_ke_mpv):
+    check_system = subprocess.run(['where', 'mpv'], capture_output=True, text=True)
+    if check_system.returncode == 0:
+      path_ke_mpv = 'mpv'
+    else:
+      return False, "mpv.exe tidak ditemukan di folder /mpv/, root, atau PATH sistem."
+
   mpv_args = [
     path_ke_mpv,
     direct_url,
@@ -29,7 +37,7 @@ def play_with_mpv(direct_url):
     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
   ]
   try:
-    subprocess.Popen(mpv_args, cwd=folder_mpv, creationflags=subprocess.CREATE_NEW_CONSOLE)
+    subprocess.Popen(mpv_args, creationflags=subprocess.CREATE_NEW_CONSOLE)
     return True, None
   except Exception as e:
     return False, str(e)
@@ -41,9 +49,7 @@ def main():
   | || '_ \ / _` |/ _ \| '_ \| | '_ ` _ \ / _ \ 
   | || | | | (_| | (_) | | | | | | | | | |  __/ 
  |___|_| |_|\__,_|\___/|_| |_|_|_| |_| |_|\___|
-                
-        [/bold cyan][italic]Stream Anime Subtitle Indonesia[/italic]""")
-  console.print('            Supported Link: PDrain\n')
+  [/bold cyan][italic]The spirit of ani-cli | PDrain Only Mode[/italic]""")
   if not os.path.exists('plugins'): os.makedirs('plugins')
   files = [f[:-3] for f in os.listdir('plugins') if f.endswith('.py') and f != '__init__.py']
   if not files:
@@ -80,7 +86,7 @@ def main():
           if "pdrain" in s_name.lower() or "pixeldrain" in s_name.lower():
             options.append({"name": f"[{res}] {s_name}", "value": s_url})
       if not options:
-        console.print("[yellow]Server PDrain tidak tersedia untuk episode ini.[/yellow]")
+        console.print("[yellow]Server PDrain tidak tersedia.[/yellow]")
         continue
       server_url = inquirer.select(message="Pilih Server:", choices=options).execute()
       with console.status("[bold magenta]Mengekstrak link...", spinner="dots") as status:
@@ -106,15 +112,15 @@ def main():
           if any(kw in final_lower for kw in keywords):
             is_valid = True
         if is_valid:
-          status.update("[bold cyan]Link Valid! Membuka MPV...")
+          status.update("[bold cyan]Membuka MPV...")
           success, err = play_with_mpv(final_link)
           if success:
             time.sleep(1)
             console.print(f"[green]✔ Berhasil menonton![/green]")
           else:
-            console.print(f"[red]✘ Gagal buka MPV: {err}[/red]")
+            console.print(f"[red]✘ {err}[/red]")
         else:
-          console.print(f"[red]✘ Gagal mengekstrak: {final_link}[/red]")
+          console.print(f"[red]✘ Link tidak valid.[/red]")
     else:
       console.print("[red]Gagal dapet link.[/red]")
 
