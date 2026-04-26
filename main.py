@@ -43,7 +43,9 @@ def main():
   | || '_ \ / _` |/ _ \| '_ \| | '_ ` _ \ / _ \ 
   | || | | | (_| | (_) | | | | | | | | | |  __/ 
  |___|_| |_|\__,_|\___/|_| |_|_|_| |_| |_|\___|
-  [/bold cyan][italic]Subtitle Indonesia Anime Searcher[/italic]""")
+                
+       [/bold cyan][italic]Subtitle Indonesia Anime Searcher[/italic]
+  """)
   
   p_name = 'otakudesu'
   
