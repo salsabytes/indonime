@@ -21,3 +21,7 @@
    ```bash
    pip install -r requirements.txt
    ```
+3. Build Extensions
+   ```bash
+   python setup.py build_ext --inplace
+   ```
