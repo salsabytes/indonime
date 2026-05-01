@@ -17,11 +17,11 @@
    git clone https://github.com/salsa-ram/indonime
    cd indonime
    ```
-2. Install dependencies
+2. **Install dependencies**
    ```bash
    pip install -r requirements.txt
    ```
-3. Build Extensions
+3. **Build extensions**
    ```bash
    python setup.py build_ext --inplace
    ```
