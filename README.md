@@ -1,3 +1,7 @@
+## 💻 Compatibility Notice
+> [!IMPORTANT]  
+> **Windows Only:** Currently, Indonime is developed and optimized exclusively for Windows environments. Cross-platform support (Linux/macOS) is not yet guaranteed due to specific binary dependencies.
+
 ## 📡 Provider & Link Support
 
 | Provider  | Extraction |
