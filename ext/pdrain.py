@@ -1,37 +1,29 @@
-import time
-from playwright.sync_api import sync_playwright
+import requests
 from rich.console import Console
 
 console = Console()
 
 def scrape(url):
-  with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
-    context = browser.new_context()
-    page = context.new_page()
-    final_video_url = None
-
-    def handle_request(request):
-      nonlocal final_video_url
-      if "/api/file/" in request.url and "download" in request.url:
-        if not any(ext in request.url.lower() for ext in [".jpg", ".png", ".webp"]):
-          final_video_url = request.url
-
-    page.on("request", handle_request)
-    try:
-      file_id = url.split('/')[-1]
-      backup_url = f"https://pixeldrain.com/api/file/{file_id}?download"
-      page.goto(url, wait_until="domcontentloaded", timeout=30000)
-      download_btn = page.locator("a.button:has-text('Download'), button:has-text('Download')").first
-      if download_btn.is_visible():
-        download_btn.click()
-        for _ in range(10):
-          if final_video_url:
-            break
-          time.sleep(0.5)
-      return final_video_url if final_video_url else backup_url
-    except Exception:
-      file_id = url.split('/')[-1]
-      return f"https://pixeldrain.com/api/file/{file_id}?download"
-    finally:
-      browser.close()
+  headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  }
+  
+  try:
+    with console.status("[bold cyan]Bypassing Otakulinks...[/bold cyan]"):
+      response = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
+    
+    final_url = response.url
+    
+    if "pixeldrain.com" in final_url:
+      file_id = final_url.split('/')[-1].split('?')[0]
+      return f"https://pixeldrain.com/api/file/{file_id}"
+    else:
+      console.print(f"[yellow]⚠ Redirect berakhir di: {final_url}[/yellow]")
+      return None
+      
+  except Exception as e:
+    console.print(f"[red]✘ Requests Error: {e}[/red]")
+    if "pixeldrain.com" in url:
+      file_id = url.split('/')[-1].split('?')[0]
+      return f"https://pixeldrain.com/api/file/{file_id}"
+    return None
