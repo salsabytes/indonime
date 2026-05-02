@@ -1,9 +1,8 @@
 import os
+import sys
 import importlib
 import subprocess
 import time
-import requests
-from pathlib import Path
 from InquirerPy import inquirer
 from InquirerPy.utils import get_style
 from rich.console import Console
@@ -17,8 +16,8 @@ def print_banner():
   console.clear()
   console.print(r"""[bold cyan]
  ___           _             _                 
-|_ _|_ __    __| | ___  _ __ (_)_ __ ___   ___  
- | || '_ \  / _` |/ _ \| '_ \| | '_ ` _ \ / _ \ 
+|_ _|_ __    __| | ___  _ __ (_)_ __ ___  ___  
+ | || '_ \  / _` |/ _ \| '_ \| | '_ ` _ \/ _ \ 
  | || | | | (_| | (_) | | | | | | | | | |  __/ 
 |___|_| |_|\__,_|\___/|_| |_|_|_| |_| |_|\___|
                 
@@ -31,16 +30,17 @@ def play_with_mpv(video_target, is_temp_file=False):
     try: current_mpv_process.terminate()
     except: pass
       
-  base_path = os.path.dirname(os.path.abspath(__file__))
-  path_candidates = [
-    os.path.join(base_path, 'mpv', 'mpv.exe'),
-    os.path.join(base_path, 'mpv.exe'),
-    'mpv'
-  ]
-  path_ke_mpv = next((p for p in path_candidates if os.path.exists(p) or p == 'mpv'), None)
+  is_exe = getattr(sys, 'frozen', False) or '__compiled__' in globals()
   
-  if not path_ke_mpv:
-    console.print("[red]✘ Error: mpv.exe tidak ditemukan.[/red]")
+  if is_exe:
+    base_dir = os.path.dirname(sys.executable)
+  else:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+  path_ke_mpv = os.path.join(base_dir, 'mpv', 'mpv.exe')
+
+  if not os.path.exists(path_ke_mpv):
+    console.print(f"[red]✘ Error: mpv.exe tidak ketemu di: {path_ke_mpv}[/red]")
     return False
 
   mpv_args = [path_ke_mpv, video_target, '--title=Indonime Player', '--force-window=yes', '--ontop']
@@ -48,18 +48,23 @@ def play_with_mpv(video_target, is_temp_file=False):
   try:
     if is_temp_file:
       subprocess.run(mpv_args)
-      if os.path.exists(video_target):
-        os.remove(video_target)
+      if os.path.exists(video_target): os.remove(video_target)
     else:
       current_mpv_process = subprocess.Popen(mpv_args, creationflags=subprocess.CREATE_NEW_CONSOLE)
     return True
   except Exception as e:
-    console.print(f"[red]✘ Gagal menjalankan MPV: {e}[/red]")
+    console.print(f"[red]✘ Gagal: {e}[/red]")
     return False
 
 def main():
   global current_mpv_process
   p_name = 'otakudesu'
+  is_exe = getattr(sys, 'frozen', False) or '__compiled__' in globals()
+  if is_exe:
+    base_dir = os.path.dirname(sys.executable)
+  else:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+  plugins_path = os.path.join(base_dir, 'plugins')
   custom_style = get_style({
     'questionmark': '#5fafd7 bold',
     'question': '#d1d1d1',
@@ -70,7 +75,11 @@ def main():
 
   while True:
     print_banner()
-    available_providers = [f.replace('.py', '') for f in os.listdir('plugins') if f.endswith('.py') and not f.startswith('__')]
+    if not os.path.exists(plugins_path):
+      console.print(f'[red]Error: Folder plugins not found: {plugins_path}[/red]')
+      break
+    
+    available_providers = [f.replace('.py', '') for f in os.listdir(plugins_path) if f.endswith('.py') and not f.startswith('__')]
     
     try:
       plugin = importlib.import_module(f'plugins.{p_name}')
@@ -144,11 +153,28 @@ def main():
           with console.status(f"[bold yellow]Resolving Mega Link...[/bold yellow]"):
             try:
               with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                browsers = [
+                  {"channel": "chrome"}, 
+                  {"channel": "msedge"}, 
+                  {"channel": "chrome-beta"},
+                ]
+                browser = None
+                for target in browsers:
+                  try:
+                    browser = p.chromium.launch(headless=True, **target)
+                    if browser: break
+                  except:
+                    continue
+
+                if not browser:
+                  try:
+                    browser = p.firefox.launch(headless=True)
+                  except:
+                    console.print("[red]✘ Error: Cannot find Chrome, Edge, or Firefox.[/red]")
+                    break
                 context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0")
                 page = context.new_page()
                 page.goto(server_url, wait_until='commit')
-                
                 start_time = time.time()
                 while time.time() - start_time < 15:
                   curr = page.url
@@ -157,20 +183,26 @@ def main():
                     break
                   time.sleep(0.5)
                 browser.close()
-            except: pass
+            except Exception as e:
+              console.print(f"[red]✘ Playwright Error: {e}[/red]")
+              time.sleep(5)
 
           if final_mega_url:
             if "#!" in final_mega_url:
               final_mega_url = final_mega_url.replace("#!", "file/").replace("!", "#", 1)
-            
             try:
               f_id = final_mega_url.split("file/")[1].split("#")[0]
               final_target = megaNZ.decrypt_mega_file(final_mega_url, f_id, console)
               is_temp = True
-            except:
-              console.print("[red]✘ Gagal parsing URL Mega.[/red]"); break
+            except Exception as e:
+              import traceback
+              console.print("[red]✘ ERROR DEKRIPSI C++:[/red]")
+              console.print(traceback.format_exc())
+              time.sleep(10)
+              break
           else:
-            console.print("[red]✘ Timeout: Gagal mendapatkan link Mega asli.[/red]"); break
+            console.print("[red]✘ Timeout: Gagal mendapatkan link Mega asli.[/red]")
+            time.sleep(3); break
         
         else:
           current_url = server_url
