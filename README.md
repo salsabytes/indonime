@@ -19,10 +19,10 @@ Buat yang mau langsung pakai tanpa ribet:
 1. Download di [Releases](https://github.com/salsabytes/indonime/releases).
 2. Ekstrak, tinggal pake `Indonime.exe`.
 
-### Prerequisites
+### Minimal Punya
 - Python 3.10+
 - Git
-- Visual Studio Build Tools: Required for compiling C++ extensions. Select "Desktop development with C++" during installation
+- Visual Studio Build Tools: Wajib instal yang "Desktop development with C++" buat compile ekstensinya
 
 ### Build dari source
 Pastiin kamu punya Python 3.10+, Git, sama Visual Studio Build Tools (Desktop development with C++) biar nggak error pas build.
