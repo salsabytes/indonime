@@ -1,8 +1,28 @@
 import os
 import sys
+from pathlib import Path
+
+def get_base_dir():
+  if getattr(sys, 'frozen', False) or '__compiled__' in globals():
+    return Path(os.environ.get("TEMP", os.getcwd())) / f"onefile_{os.getpid()}_{int(time.time())}" if not hasattr(sys, '_MEIPASS') else Path(sys._MEIPASS)
+  return Path(__file__).resolve().parent
+
+BASE_DIR = Path(sys._MEIPASS) if hasattr(sys, '_MEIPASS') else Path(__file__).resolve().parent
+if not (BASE_DIR / "mpv" / "mpv.exe").exists():
+  BASE_DIR = Path(os.path.dirname(sys.argv[0]))
+
+IS_FROZEN = getattr(sys, 'frozen', False) or '__compiled__' in globals()
+
+PLUGINS_DIR = BASE_DIR / "plugins"
+
+if str(BASE_DIR) not in sys.path:
+  sys.path.insert(0, str(BASE_DIR))
+
 import importlib
 import subprocess
 import time
+import pkgutil
+import plugins
 from InquirerPy import inquirer
 from InquirerPy.utils import get_style
 from rich.console import Console
@@ -16,8 +36,8 @@ def print_banner():
   console.clear()
   console.print(r"""[bold cyan]
  ___           _             _                 
-|_ _|_ __    __| | ___  _ __ (_)_ __ ___  ___  
- | || '_ \  / _` |/ _ \| '_ \| | '_ ` _ \/ _ \ 
+|_ _|_ __   __| | ___  _ __ (_)_ __ ___   ___  
+ | || '_ \ / _` |/ _ \| '_ \| | '_ ` _ \ / _ \ 
  | || | | | (_| | (_) | | | | | | | | | |  __/ 
 |___|_| |_|\__,_|\___/|_| |_|_|_| |_| |_|\___|
                 
@@ -30,20 +50,17 @@ def play_with_mpv(video_target, is_temp_file=False):
     try: current_mpv_process.terminate()
     except: pass
       
-  is_exe = getattr(sys, 'frozen', False) or '__compiled__' in globals()
+  path_mpv = (BASE_DIR / "mpv" / "mpv.exe").resolve()
   
-  if is_exe:
-    base_dir = os.path.dirname(sys.executable)
-  else:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    
-  path_ke_mpv = os.path.join(base_dir, 'mpv', 'mpv.exe')
-
-  if not os.path.exists(path_ke_mpv):
-    console.print(f"[red]✘ Error: mpv.exe tidak ketemu di: {path_ke_mpv}[/red]")
-    return False
-
-  mpv_args = [path_ke_mpv, video_target, '--title=Indonime Player', '--force-window=yes', '--ontop']
+  if not path_mpv.exists():
+    alt_path = Path(sys.argv[0]).parent / "mpv" / "mpv.exe"
+    if alt_path.exists():
+      path_mpv = alt_path
+    else:
+      console.print(f"[red]✘ Error: mpv.exe not found![/red]")
+      return False
+  
+  mpv_args = [str(path_mpv), video_target, '--title=Indonime Player', '--force-window=yes', '--ontop']
   
   try:
     if is_temp_file:
@@ -59,12 +76,9 @@ def play_with_mpv(video_target, is_temp_file=False):
 def main():
   global current_mpv_process
   p_name = 'otakudesu'
-  is_exe = getattr(sys, 'frozen', False) or '__compiled__' in globals()
-  if is_exe:
-    base_dir = os.path.dirname(sys.executable)
-  else:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-  plugins_path = os.path.join(base_dir, 'plugins')
+  
+  plugins_path = BASE_DIR / 'plugins'
+  
   custom_style = get_style({
     'questionmark': '#5fafd7 bold',
     'question': '#d1d1d1',
@@ -75,13 +89,11 @@ def main():
 
   while True:
     print_banner()
-    if not os.path.exists(plugins_path):
-      console.print(f'[red]Error: Folder plugins not found: {plugins_path}[/red]')
-      break
-    
-    available_providers = [f.replace('.py', '') for f in os.listdir(plugins_path) if f.endswith('.py') and not f.startswith('__')]
+    available_providers = [module.name for module in pkgutil.iter_modules(plugins.__path__)]
     
     try:
+      if str(BASE_DIR) not in sys.path:
+        sys.path.append(str(BASE_DIR))
       plugin = importlib.import_module(f'plugins.{p_name}')
       importlib.reload(plugin)
     except Exception as e:
@@ -153,25 +165,19 @@ def main():
           with console.status(f"[bold yellow]Resolving Mega Link...[/bold yellow]"):
             try:
               with sync_playwright() as p:
-                browsers = [
-                  {"channel": "chrome"}, 
-                  {"channel": "msedge"}, 
-                  {"channel": "chrome-beta"},
-                ]
                 browser = None
-                for target in browsers:
+                for channel in ["chrome", "msedge", "chrome-beta"]:
                   try:
-                    browser = p.chromium.launch(headless=True, **target)
+                    browser = p.chromium.launch(headless=True, channel=channel)
                     if browser: break
-                  except:
-                    continue
-
+                  except: continue
+                
                 if not browser:
-                  try:
-                    browser = p.firefox.launch(headless=True)
+                  try: browser = p.firefox.launch(headless=True)
                   except:
-                    console.print("[red]✘ Error: Cannot find Chrome, Edge, or Firefox.[/red]")
+                    console.print("[red]✘ Error: Browser tidak ditemukan.[/red]")
                     break
+
                 context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0")
                 page = context.new_page()
                 page.goto(server_url, wait_until='commit')
@@ -185,7 +191,7 @@ def main():
                 browser.close()
             except Exception as e:
               console.print(f"[red]✘ Playwright Error: {e}[/red]")
-              time.sleep(5)
+              time.sleep(3)
 
           if final_mega_url:
             if "#!" in final_mega_url:
@@ -195,14 +201,11 @@ def main():
               final_target = megaNZ.decrypt_mega_file(final_mega_url, f_id, console)
               is_temp = True
             except Exception as e:
-              import traceback
-              console.print("[red]✘ ERROR DEKRIPSI C++:[/red]")
-              console.print(traceback.format_exc())
-              time.sleep(10)
-              break
+              console.print(f"[red]✘ Gagal Dekripsi: {e}[/red]")
+              time.sleep(3); break
           else:
-            console.print("[red]✘ Timeout: Gagal mendapatkan link Mega asli.[/red]")
-            time.sleep(3); break
+            console.print("[red]✘ Timeout: Gagal mendapatkan link Mega.[/red]")
+            time.sleep(2); break
         
         else:
           current_url = server_url
@@ -224,8 +227,7 @@ def main():
         post_play = inquirer.select(message="Command:", choices=['▶ NEXT', '◀ PREV', '↺ REPLAY', '⚙ QUALITY', '✖ QUIT'], style=custom_style).execute()
         if post_play == '▶ NEXT': current_ep_idx += 1
         elif post_play == '◀ PREV': current_ep_idx -= 1
-        elif post_play == '⚙ QUALITY': continue
-        elif post_play == '↺ REPLAY': continue
+        elif post_play in ['⚙ QUALITY', '↺ REPLAY']: continue
         else: current_ep_idx = -1; break
       if current_ep_idx == -1: break
 
