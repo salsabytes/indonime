@@ -2,6 +2,8 @@
 #### Nonton anime sub Indo dari terminal, nggak pake ribet.
 Indonime itu tools ringan buat kamu yang males buka browser cuma buat nonton anime. Tinggal cari, klik, dan tonton.
 
+[English version is available here](https://github.com/salsabytes/indonime/blob/main/README.en.md)
+
 ## 💻 Compatibility
 > [!IMPORTANT]  
 > Windows Only: Karena ada urusan sama C++ binary dependencies, saat ini cuma lancar di Windows.
