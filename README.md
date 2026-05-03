@@ -12,8 +12,9 @@
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Python
+- Python 3.10+
 - Git
+- Visual Studio Build Tools: Required for compiling C++ extensions. Select "Desktop development with C++" during installation
 
 ### Installation
 1. **Clone the repository**
