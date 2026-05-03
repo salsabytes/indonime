@@ -32,7 +32,14 @@
    ```bash
    install_mpv.bat
    ```
-3. **Build extensions**
+4. **Build extensions**
    ```bash
    python setup.py build_ext --inplace
    ```
+
+### ⚡ Quick Start
+#### 🏃 How to Run
+After completing the installation, you can launch the application using:
+```bash
+python main.py
+```
