@@ -2,6 +2,15 @@
 #### A minimalist Indonesian-subtitled anime streamer for Windows.
 Indonime is a lightweight tool designed to search and stream anime with Indonesian subtitles directly from local providers without the need for a web browser. It handles scraping, link decryption (such as Mega, PDrain, and more to come), and uses MPV as the primary media player.
 
+## 🎬 Preview
+See how it works from launching the executable to playback:
+
+From Indonime.exe to watching in seconds.
+
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/8149d294-9dba-42e2-bece-1ced2ca66afd" controls autoplay loop muted style="max-width: 100%; border-radius: 10px;"></video>
+</div>
+
 ## 💻 Compatibility Notice
 > [!IMPORTANT]  
 > **Windows Only:** Currently, Indonime is developed and optimized exclusively for Windows environments. Cross-platform support (Linux/macOS) is not yet guaranteed due to specific binary dependencies.
