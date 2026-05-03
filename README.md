@@ -11,6 +11,11 @@
 
 ## 🚀 Getting Started
 
+### Using Portable Version
+If you downloaded the bundle from the [Releases](https://github.com/salsa-ram/indonime/releases) page:
+1. Extract the archive.
+2. Run `Indonime.exe`.
+
 ### Prerequisites
 - Python 3.10+
 - Git
