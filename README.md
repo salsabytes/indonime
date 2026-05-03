@@ -38,7 +38,7 @@
    ```
 
 ### ⚡ Quick Start
-#### 🏃 How to Run
+#### How to Run
 After completing the installation, you can launch the application using:
 ```bash
 python main.py
