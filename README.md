@@ -4,6 +4,15 @@ Indonime itu tools ringan buat kamu yang males buka browser cuma buat nonton ani
 
 [English version is available here](https://github.com/salsabytes/indonime/blob/main/README.en.md)
 
+## 🎬 Preview
+Gambaran singkat dari awal buka aplikasi sampe videonya jalan:
+
+Dari `Indonime.exe` sampe nonton cuma butuh beberapa detik.
+
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/8149d294-9dba-42e2-bece-1ced2ca66afd" controls autoplay loop muted style="max-width: 100%; border-radius: 10px;"></video>
+</div>
+
 ## 💻 Compatibility
 > [!IMPORTANT]  
 > Windows Only: Karena ada urusan sama C++ binary dependencies, saat ini cuma lancar di Windows.
