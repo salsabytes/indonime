@@ -16,7 +16,7 @@ Indonime is a lightweight tool designed to search and stream anime with Indonesi
 ## 🚀 Getting Started
 
 ### Using Portable Version
-If you downloaded the bundle from the [Releases](https://github.com/salsa-ram/indonime/releases) page:
+If you downloaded the bundle from the [Releases](https://github.com/salsabytes/indonime/releases) page:
 1. Extract the archive.
 2. Run `Indonime.exe`.
 
@@ -28,7 +28,7 @@ If you downloaded the bundle from the [Releases](https://github.com/salsa-ram/in
 ### Installation
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/salsa-ram/indonime
+   git clone https://github.com/salsabytes/indonime
    cd indonime
    ```
 2. **Install dependencies**
