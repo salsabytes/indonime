@@ -27,6 +27,11 @@
    pip install -r requirements.txt
    pip install -e .
    ```
+3. **Initialize MPV Binary**
+   Run the included batch script to fetch the required player binaries:
+   ```bash
+   install_mpv.bat
+   ```
 3. **Build extensions**
    ```bash
    python setup.py build_ext --inplace
