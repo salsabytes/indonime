@@ -8,7 +8,7 @@ See how it works from launching the executable to playback:
 From Indonime.exe to watching in seconds.
 
 <div align="center">
-  <video src="https://github.com/user-attachments/assets/8149d294-9dba-42e2-bece-1ced2ca66afd" controls autoplay loop muted style="max-width: 100%; border-radius: 10px;"></video>
+  <video src="https://github.com/user-attachments/assets/7057b06a-859e-47cc-a555-50d1cfd3996f" controls autoplay loop muted style="max-width: 100%; border-radius: 10px;"></video>
 </div>
 
 ## 💻 Compatibility Notice
