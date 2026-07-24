@@ -27,8 +27,7 @@ def build():
       f"--output-dir={OUTPUT_DIR}",
       f"--output-filename={EXE_NAME}",
       "--experimental=terminal-is-ansi",
-      "--include-data-dir=./mpv=mpv",
-      "main.py"
+          "main.py"
     ]
 
   console.print(Panel(
