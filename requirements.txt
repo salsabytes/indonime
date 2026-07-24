@@ -2,7 +2,6 @@
 bs4==0.0.2
 certifi==2026.4.22
 charset-normalizer==3.4.7
-greenlet==3.5.0
 idna==3.13
 inquirerpy==0.3.4
 markdown-it-py==4.0.0
@@ -10,7 +9,6 @@ Nuitka==4.0.8
 pfzy==0.3.4
 prompt_toolkit==3.0.52
 pybind11==3.0.4
-pyee==13.0.1
 Pygments==2.20.0
 requests==2.33.1
 rich==15.0.0
