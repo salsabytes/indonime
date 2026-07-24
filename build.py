@@ -16,21 +16,20 @@ def build():
     shutil.rmtree(OUTPUT_DIR)
 
   cmd = [
-    sys.executable, "-m", "nuitka",
-    "--onedir",
-    "--standalone",
-    "--follow-imports",
-    "--include-package=rich",
-        "--include-package=bs4",
-        "--include-package=requests",
-    "--include-module=videodec",
-    "--include-package=plugins",
-    f"--output-dir={OUTPUT_DIR}",
-    f"--output-filename={EXE_NAME}",
-    "--experimental=terminal-is-ansi",
-    "--include-data-dir=./mpv=mpv",
-    "main.py"
-  ]
+      sys.executable, "-m", "nuitka",
+      "--standalone",
+      "--follow-imports",
+      "--include-package=rich",
+      "--include-package=bs4",
+      "--include-package=requests",
+      "--include-module=videodec",
+      "--include-package=plugins",
+      f"--output-dir={OUTPUT_DIR}",
+      f"--output-filename={EXE_NAME}",
+      "--experimental=terminal-is-ansi",
+      "--include-data-dir=./mpv=mpv",
+      "main.py"
+    ]
 
   console.print(Panel(
     f"[bold blue]Nuitka Build[/bold blue]\n"
