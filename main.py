@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 from pathlib import Path
 
 def get_base_dir():
@@ -53,12 +54,16 @@ def play_with_mpv(video_target, is_temp_file=False):
   path_mpv = (BASE_DIR / "mpv" / "mpv.exe").resolve()
   
   if not path_mpv.exists():
-    alt_path = Path(sys.argv[0]).parent / "mpv" / "mpv.exe"
-    if alt_path.exists():
-      path_mpv = alt_path
-    else:
-      console.print(f"[red]✘ Error: mpv.exe not found![/red]")
-      return False
+      alt_path = Path(sys.argv[0]).parent / "mpv" / "mpv.exe"
+      if alt_path.exists():
+        path_mpv = alt_path
+      else:
+        path_in_path = shutil.which("mpv")
+        if path_in_path:
+          path_mpv = Path(path_in_path)
+        else:
+          console.print(f"[red]✘ Error: mpv.exe not found![/red]")
+          return False
   
   mpv_args = [str(path_mpv), video_target, '--title=Indonime Player', '--force-window=yes', '--ontop']
   
