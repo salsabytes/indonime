@@ -24,10 +24,10 @@ import subprocess
 import time
 import pkgutil
 import plugins
+import requests
 from InquirerPy import inquirer
 from InquirerPy.utils import get_style
 from rich.console import Console
-from playwright.sync_api import sync_playwright
 from ext import pdrain, megaNZ
 
 console = Console()
@@ -54,16 +54,16 @@ def play_with_mpv(video_target, is_temp_file=False):
   path_mpv = (BASE_DIR / "mpv" / "mpv.exe").resolve()
   
   if not path_mpv.exists():
-      alt_path = Path(sys.argv[0]).parent / "mpv" / "mpv.exe"
-      if alt_path.exists():
-        path_mpv = alt_path
+    alt_path = Path(sys.argv[0]).parent / "mpv" / "mpv.exe"
+    if alt_path.exists():
+      path_mpv = alt_path
+    else:
+      path_in_path = shutil.which("mpv")
+      if path_in_path:
+        path_mpv = Path(path_in_path)
       else:
-        path_in_path = shutil.which("mpv")
-        if path_in_path:
-          path_mpv = Path(path_in_path)
-        else:
-          console.print(f"[red]✘ Error: mpv.exe not found![/red]")
-          return False
+        console.print(f"[red]✘ Error: mpv.exe not found![/red]")
+        return False
   
   mpv_args = [str(path_mpv), video_target, '--title=Indonime Player', '--force-window=yes', '--ontop']
   
@@ -169,33 +169,14 @@ def main():
           final_mega_url = None
           with console.status(f"[bold yellow]Resolving Mega Link...[/bold yellow]"):
             try:
-              with sync_playwright() as p:
-                browser = None
-                for channel in ["chrome", "msedge", "chrome-beta"]:
-                  try:
-                    browser = p.chromium.launch(headless=True, channel=channel)
-                    if browser: break
-                  except: continue
-                
-                if not browser:
-                  try: browser = p.firefox.launch(headless=True)
-                  except:
-                    console.print("[red]✘ Error: Browser tidak ditemukan.[/red]")
-                    break
-
-                context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0")
-                page = context.new_page()
-                page.goto(server_url, wait_until='commit')
-                start_time = time.time()
-                while time.time() - start_time < 15:
-                  curr = page.url
-                  if "mega.nz" in curr and ("#" in curr or "#!" in curr):
-                    final_mega_url = curr
-                    break
-                  time.sleep(0.5)
-                browser.close()
+              resp = requests.get(server_url, allow_redirects=True, timeout=15)
+              curr = resp.url
+              if "mega.nz" in curr and ("#" in curr or "#!" in curr):
+                final_mega_url = curr
+              else:
+                console.print(f"[red]✘ Redirect tidak mengarah ke Mega.[/red]")
             except Exception as e:
-              console.print(f"[red]✘ Playwright Error: {e}[/red]")
+              console.print(f"[red]✘ Requests Error: {e}[/red]")
               time.sleep(3)
 
           if final_mega_url:
@@ -213,7 +194,7 @@ def main():
             time.sleep(2); break
         
         else:
-                  final_target = pdrain.scrape(server_url)
+          final_target = pdrain.scrape(server_url)
 
         if final_target:
           play_with_mpv(final_target, is_temp_file=is_temp)

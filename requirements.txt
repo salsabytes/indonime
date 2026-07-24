@@ -6,10 +6,8 @@ greenlet==3.5.0
 idna==3.13
 inquirerpy==0.3.4
 markdown-it-py==4.0.0
-mdurl==0.1.2
 Nuitka==4.0.8
 pfzy==0.3.4
-playwright==1.59.0
 prompt_toolkit==3.0.52
 pybind11==3.0.4
 pyee==13.0.1
