@@ -3,18 +3,9 @@ import sys
 import shutil
 from pathlib import Path
 
-def get_base_dir():
-  if getattr(sys, 'frozen', False) or '__compiled__' in globals():
-    return Path(os.environ.get("TEMP", os.getcwd())) / f"onefile_{os.getpid()}_{int(time.time())}" if not hasattr(sys, '_MEIPASS') else Path(sys._MEIPASS)
-  return Path(__file__).resolve().parent
-
 BASE_DIR = Path(sys._MEIPASS) if hasattr(sys, '_MEIPASS') else Path(__file__).resolve().parent
 if not (BASE_DIR / "mpv" / "mpv.exe").exists():
   BASE_DIR = Path(os.path.dirname(sys.argv[0]))
-
-IS_FROZEN = getattr(sys, 'frozen', False) or '__compiled__' in globals()
-
-PLUGINS_DIR = BASE_DIR / "plugins"
 
 if str(BASE_DIR) not in sys.path:
   sys.path.insert(0, str(BASE_DIR))
@@ -82,8 +73,6 @@ def main():
   global current_mpv_process
   p_name = 'otakudesu'
   
-  plugins_path = BASE_DIR / 'plugins'
-  
   custom_style = get_style({
     'questionmark': '#5fafd7 bold',
     'question': '#d1d1d1',
@@ -97,8 +86,6 @@ def main():
     available_providers = [module.name for module in pkgutil.iter_modules(plugins.__path__)]
     
     try:
-      if str(BASE_DIR) not in sys.path:
-        sys.path.append(str(BASE_DIR))
       plugin = importlib.import_module(f'plugins.{p_name}')
       importlib.reload(plugin)
     except Exception as e:
