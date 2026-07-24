@@ -28,7 +28,7 @@ Dari `Indonime.exe` sampe nonton cuma butuh beberapa detik.
 ### Portable
 Buat yang mau langsung pakai tanpa ribet:
 1. Download di [Releases](https://github.com/salsabytes/indonime/releases).
-2. Ekstrak, tinggal pake `Indonime.exe`.
+2. Ekstrak, tinggal pakai `Indonime.exe`.
 
 ### Minimal Punya
 - Python 3.10+
