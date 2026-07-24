@@ -17,7 +17,7 @@ def build():
 
   cmd = [
     sys.executable, "-m", "nuitka",
-    "--onefile",
+    "--onedir",
     "--standalone",
     "--follow-imports",
     "--include-package=rich",
