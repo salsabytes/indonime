@@ -3,7 +3,7 @@ import pybind11
 
 ext_modules = [
   Extension(
-    'megadec',
+    'videodec',
     ['src/decoder.cpp'],
     include_dirs=[pybind11.get_include()],
     language='c++',
@@ -12,6 +12,6 @@ ext_modules = [
 ]
 
 setup(
-  name='megadec',
+  name='videodec',
   ext_modules=ext_modules,
 )

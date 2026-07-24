@@ -198,7 +198,7 @@ def main():
               final_mega_url = final_mega_url.replace("#!", "file/").replace("!", "#", 1)
             try:
               f_id = final_mega_url.split("file/")[1].split("#")[0]
-              final_target = megaNZ.decrypt_mega_file(final_mega_url, f_id, console)
+              final_target = megaNZ.resolve_mega_file(final_mega_url, f_id, console)
               is_temp = True
             except Exception as e:
               console.print(f"[red]✘ Gagal Dekripsi: {e}[/red]")
@@ -208,16 +208,7 @@ def main():
             time.sleep(2); break
         
         else:
-          current_url = server_url
-          if any(x in current_url for x in ['desustream.com', 'otakudesu.cloud']):
-            try:
-              with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
-                page.goto(current_url, wait_until='domcontentloaded')
-                time.sleep(1); current_url = page.url; browser.close()
-            except: pass
-          final_target = pdrain.scrape(current_url)
+                  final_target = pdrain.scrape(server_url)
 
         if final_target:
           play_with_mpv(final_target, is_temp_file=is_temp)

@@ -3,6 +3,6 @@ requires = ["setuptools", "wheel", "pybind11"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "megadec"
+name = "videodec"
 version = "0.1.0"
 description = "MEGA AES-CTR Decryption Engine"

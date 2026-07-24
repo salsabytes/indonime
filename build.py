@@ -24,7 +24,7 @@ def build():
     "--include-package=playwright",
     "--include-package=bs4",
     "--include-package=requests",
-    "--include-module=megadec",
+    "--include-module=videodec",
     "--include-package=plugins",
     f"--output-dir={OUTPUT_DIR}",
     f"--output-filename={EXE_NAME}",

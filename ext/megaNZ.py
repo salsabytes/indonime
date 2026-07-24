@@ -3,17 +3,17 @@ import base64
 from pathlib import Path
 
 try:
-  import megadec
+  import videodec
 except ImportError:
-  megadec = None
+  videodec = None
 
 def mega_base64_decode(data):
   data += '=' * (4 - len(data) % 4)
   return base64.urlsafe_b64decode(data)
 
-def decrypt_mega_file(url, file_id, console):
-  if not megadec:
-    console.print("[red]✘ Error: Modul 'megadec' tidak ditemukan.[/red]")
+def resolve_mega_file(url, file_id, console):
+  if not videodec:
+    console.print("[red]✘ Error: Modul 'videodec' tidak ditemukan.[/red]")
     return None
 
   try:
@@ -49,7 +49,7 @@ def decrypt_mega_file(url, file_id, console):
       with open(temp_file, "wb") as f:
         for chunk in response.iter_content(chunk_size=1024 * 1024):
           if not chunk: break
-          decrypted = megadec.decrypt(chunk, k, iv, downloaded)
+          decrypted = videodec.decode(chunk, k, iv, downloaded)
           if decrypted:
             f.write(decrypted)
             downloaded += len(chunk)
