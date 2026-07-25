@@ -60,7 +60,7 @@ def play_with_mpv(video_target, is_temp_file=False):
       subprocess.run(mpv_args)
       if os.path.exists(video_target): os.remove(video_target)
     else:
-      current_mpv_process = subprocess.Popen(mpv_args, creationflags=subprocess.CREATE_NEW_CONSOLE)
+      current_mpv_process = subprocess.Popen(mpv_args)
     return True
   except Exception as e:
     console.print(f"[red]✘ Gagal: {e}[/red]")
