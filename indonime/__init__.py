@@ -53,7 +53,7 @@ def play_with_mpv(video_target, is_temp_file=False):
         console.print(f"[red]✘ Error: mpv.exe not found![/red]")
         return False
   
-  mpv_args = [str(path_mpv), video_target, '--title=Indonime Player', '--force-window=yes', '--ontop']
+  mpv_args = [str(path_mpv), video_target, '--title=Indonime Player', '--force-window=yes', '--ontop', '--really-quiet']
   
   try:
     if is_temp_file:
