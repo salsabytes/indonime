@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Build output
+Indonime_dist/
+Indonime_v*.zip
+out/
+
+# C++ extension (compiled)
+*.pyd
+*.so
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# mpv (downloaded)
+mpv/
