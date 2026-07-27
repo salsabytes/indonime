@@ -111,9 +111,11 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_
         cmd = inquirer.select(message="🎮  Command:", choices=post_choices, style=custom_style, qmark="").execute()
 
         if cmd == '▶  NEXT':
-            idx += 1
+            if idx + 1 < len(episode_list):
+                idx += 1
         elif cmd == '◀  PREV':
-            idx -= 1
+            if idx > 0:
+                idx -= 1
         elif cmd in ('↺  REPLAY', '⚙  QUALITY'):
             continue
         else:

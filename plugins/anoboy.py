@@ -28,6 +28,7 @@ def episodes(url):
 
 
 @safe_dict
+@cached(ttl=60)
 def downloads(url):
     soup = fetch_soup(url)
     dl_div = soup.find('div', class_='navi')

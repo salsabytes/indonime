@@ -107,8 +107,19 @@ def print_separator():
     console.print(Rule(style="#1f2937"))
 
 
+# ── Cached episode table (identity-based — same list = skip rebuild) ──
+_last_table_eps = None
+_last_table = None
+
+
 def make_episode_table(episode_list) -> Table:
-    """Create a Rich Table for episode list display."""
+    """Create a Rich Table for episode list display.
+    Cached: returns the same Table object when list reference is unchanged.
+    """
+    global _last_table_eps, _last_table
+    if _last_table_eps is episode_list:
+        return _last_table
+
     table = Table(
         box=HEAVY_HEAD,
         border_style="#374151",
@@ -128,6 +139,9 @@ def make_episode_table(episode_list) -> Table:
             ep["title"][:60],
             "▶",
         )
+
+    _last_table_eps = episode_list
+    _last_table = table
     return table
 
 
