@@ -3,9 +3,12 @@ import base64
 from pathlib import Path
 
 try:
-  import videodec
+  from . import videodec
 except ImportError:
-  videodec = None
+  try:
+    import videodec  # ponytail: fallback to compiled C extension
+  except ImportError:
+    videodec = None
 
 def mega_base64_decode(data):
   data += '=' * (4 - len(data) % 4)

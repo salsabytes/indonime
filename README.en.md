@@ -46,9 +46,9 @@ If you downloaded the bundle from the [Releases](https://github.com/salsabytes/i
    pip install -e .
    ```
 3. **Initialize MPV Binary**
-   Run the included batch script to fetch the required player binaries:
+   Run the included setup script:
    ```bash
-   install_mpv.bat
+   python setup_mpv.py
    ```
 4. **Build extensions**
    ```bash

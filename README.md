@@ -49,7 +49,7 @@ Pastiin kamu punya Python 3.10+, Git, sama Visual Studio Build Tools (Desktop de
    ```
 3. **Setup**
    ```bash
-   install_mpv.bat
+   python setup_mpv.py
    python setup.py build_ext --inplace
    ```
 

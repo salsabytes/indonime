@@ -1,83 +1,19 @@
-import os
-import sys
-import shutil
-from pathlib import Path
 import argparse
 import importlib
-import subprocess
-import time
 import pkgutil
+import time
 
-BASE_DIR = Path(sys._MEIPASS) if hasattr(sys, '_MEIPASS') else Path(__file__).resolve().parent.parent
-if not (BASE_DIR / "mpv" / "mpv.exe").exists():
-  BASE_DIR = Path(os.path.dirname(sys.argv[0]))
+from . import player
+from .ui import console, print_banner, make_style
 
 import plugins
 import requests
 from InquirerPy import inquirer
-from InquirerPy.utils import get_style
-from rich.console import Console
 from ext import pdrain, megaNZ
 
-console = Console()
-current_mpv_process = None
-
-def print_banner():
-  console.clear()
-  console.print(r"""[bold cyan]
- ___           _             _                 
-|_ _|_ __   __| | ___  _ __ (_)_ __ ___   ___  
- | || '_ \ / _` |/ _ \| '_ \| | '_ ` _ \ / _ \ 
- | || | | | (_| | (_) | | | | | | | | | |  __/ 
-|___|_| |_|\__,_|\___/|_| |_|_|_| |_| |_|\___|
-                
-    [/bold cyan][italic]Subtitle Indonesia Anime Searcher[/italic]
-  """)
-
-def play_with_mpv(video_target, is_temp_file=False):
-  global current_mpv_process
-  if current_mpv_process and current_mpv_process.poll() is None:
-    current_mpv_process.terminate()
-      
-  path_mpv = (BASE_DIR / "mpv" / "mpv.exe").resolve()
-  
-  if not path_mpv.exists():
-    alt_path = Path(sys.argv[0]).parent / "mpv" / "mpv.exe"
-    if alt_path.exists():
-      path_mpv = alt_path
-    else:
-      path_in_path = shutil.which("mpv")
-      if path_in_path:
-        path_mpv = Path(path_in_path)
-      else:
-        console.print(f"[red]✘ Error: mpv.exe not found![/red]")
-        return False
-  
-  mpv_args = [str(path_mpv), video_target, '--title=Indonime Player', '--force-window=yes', '--ontop', '--really-quiet']
-  
-  try:
-    if is_temp_file:
-      subprocess.run(mpv_args)
-      if os.path.exists(video_target): os.remove(video_target)
-    else:
-      current_mpv_process = subprocess.Popen(mpv_args)
-    return True
-  except Exception as e:
-    console.print(f"[red]✘ Gagal: {e}[/red]")
-    return False
-
-def _make_style():
-  return get_style({
-    'questionmark': '#5fafd7 bold',
-    'question': '#d1d1d1',
-    'instruction': '#454545 italic',
-    'pointer': '#5fafd7 bold',
-    'answere': '#5fafd7',
-  }, style_override=False)
 
 def _play_episode(episode_url, plugin, custom_style):
   """Resolve stream and play. Returns True if played successfully."""
-  global current_mpv_process
   with console.status(f'[bold cyan]Resolving stream...[/bold cyan]'):
     dl_links = plugin.downloads(episode_url)
 
@@ -132,14 +68,14 @@ def _play_episode(episode_url, plugin, custom_style):
     final_target = pdrain.scrape(server_url)
 
   if final_target:
-    return play_with_mpv(final_target, is_temp_file=is_temp)
+    return player.play_with_mpv(final_target, is_temp_file=is_temp)
   else:
     console.print(f'[red]✘ Stream resolution failed.[/red]')
     return False
 
+
 def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_banner=True, show_quality=True):
   """Episode pick -> play -> post-play. Returns 'back' or 'quit'."""
-  global current_mpv_process
   idx = 0
   while True:
     if show_banner:
@@ -167,15 +103,15 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_
     elif cmd in ('↺ REPLAY', '⚙ QUALITY'): continue
     else: return 'quit'
 
+
 def _tui_loop():
-  global current_mpv_process
   p_name = 'otakudesu'
-  custom_style = _make_style()
+  custom_style = make_style()
 
   while True:
     print_banner()
     available_providers = [module.name for module in pkgutil.iter_modules(plugins.__path__)]
-    
+
     try:
       plugin = importlib.import_module(f'plugins.{p_name}')
       importlib.reload(plugin)
@@ -215,10 +151,10 @@ def _tui_loop():
     if _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK TO SEARCH', show_banner=True, show_quality=True) == 'quit':
       break
 
+
 def _search_mode(query, provider='otakudesu'):
   """One-shot search -> play -> exit."""
-  global current_mpv_process
-  custom_style = _make_style()
+  custom_style = make_style()
 
   try:
     plugin = importlib.import_module(f'plugins.{provider}')
@@ -246,9 +182,9 @@ def _search_mode(query, provider='otakudesu'):
 
   _episode_nav(episode_list, plugin, custom_style, back_label='<< QUIT', show_banner=False, show_quality=False)
 
-  # keep alive for bg mpv (pdrain streams)
-  if current_mpv_process and current_mpv_process.poll() is None:
-    current_mpv_process.wait()
+  if player.current_mpv_process and player.current_mpv_process.poll() is None:
+    player.current_mpv_process.wait()
+
 
 def main():
   parser = argparse.ArgumentParser(description='Indonime - Subtitle Indonesia Anime Searcher')
