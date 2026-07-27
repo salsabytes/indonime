@@ -18,6 +18,8 @@ HEADERS = {
     ),
 }
 
+_SESSION = requests.Session()  # reuse TCP + TLS across plugin calls
+
 # ── Simple TTL cache ──────────────────────────────────────────────
 _CACHE = {}
 _CACHE_AT = {}  # key -> timestamp
@@ -47,7 +49,7 @@ def cache_clear():
 # ── HTTP + BS4 helpers ────────────────────────────────────────────
 def fetch_soup(url, headers=HEADERS, timeout=15):
     """GET url, return BeautifulSoup object. Raises on failure."""
-    res = requests.get(url, headers=headers, timeout=timeout)
+    res = _SESSION.get(url, headers=headers, timeout=timeout)
     res.raise_for_status()
     return BeautifulSoup(res.text, 'html.parser')
 

@@ -17,6 +17,8 @@ import requests
 from InquirerPy import inquirer
 from ext import pdrain, megaNZ
 
+_SESSION = requests.Session()  # reuse connection for MEGA redirect resolve
+
 
 def _play_episode(episode_url, plugin, custom_style):
     """Resolve stream and play. Returns True if played successfully."""
@@ -46,7 +48,7 @@ def _play_episode(episode_url, plugin, custom_style):
         final_mega_url = None
         with console.status(styled_status("🔓 Resolving Mega link...")):
             try:
-                resp = requests.get(server_url, allow_redirects=True, timeout=15)
+                resp = _SESSION.get(server_url, allow_redirects=True, timeout=15)
                 curr = resp.url
                 if "mega.nz" in curr and ("#" in curr or "#!" in curr):
                     final_mega_url = curr
@@ -109,6 +111,8 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_
         ep_choices.append({'name': f'  ↩ {back_label}', 'value': 'back'})
         selected = inquirer.select(message='▶  Select episode:', choices=ep_choices, default=idx, style=custom_style, qmark="").execute()
         if selected == 'back' or selected is None:
+            from plugins._base import cache_clear
+            cache_clear()  # don't let episode/download cache accumulate across searches
             return 'back'
         idx = selected
 

@@ -6,6 +6,8 @@ import threading
 import queue
 from pathlib import Path
 
+_SESSION = requests.Session()  # reuse TCP connection for MEGA API + download
+
 # Try fastest backend first
 _decryptor = None
 try:
@@ -57,7 +59,7 @@ def resolve_mega_file(url, file_id, console):
     api_url = "https://g.api.mega.co.nz/cs"
     payload = [{"a": "g", "g": 1, "p": file_id}]
     try:
-        res = requests.post(api_url, json=payload).json()
+        res = _SESSION.post(api_url, json=payload).json()
         if isinstance(res[0], int):
             console.print(f"[red]✘ MEGA API Error: {res[0]}[/red]")
             return None
@@ -72,7 +74,7 @@ def resolve_mega_file(url, file_id, console):
 
     try:
         with console.status(f"[bold magenta]Decrypting... (0%)") as status:
-            response = requests.get(dl_link, stream=True)
+            response = _SESSION.get(dl_link, stream=True)
 
             # Prefetch thread — downloads chunks ahead while main thread decrypts
             chunk_queue = queue.Queue(maxsize=2)
@@ -152,7 +154,7 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
     api_url = "https://g.api.mega.co.nz/cs"
     payload = [{"a": "g", "g": 1, "p": file_id}]
     try:
-        res = requests.post(api_url, json=payload).json()
+        res = _SESSION.post(api_url, json=payload).json()
         if isinstance(res[0], int):
             console.print(f"[red]✘ MEGA API Error: {res[0]}[/red]")
             return None
@@ -171,7 +173,7 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
 
     def _download():
         try:
-            response = requests.get(dl_link, stream=True)
+            response = _SESSION.get(dl_link, stream=True)
             chunk_queue = queue.Queue(maxsize=2)
             stop_prefetch = threading.Event()
 
