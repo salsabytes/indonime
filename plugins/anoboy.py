@@ -1,10 +1,10 @@
 """Anoboy provider — search, episodes, download links."""
-from ._base import HEADERS, fetch_soup, cached, safe_list, safe_dict
+from ._base import HEADERS, fetch_soup, cached, safe
 
 BASE = 'https://anoboy7.com'
 
 
-@safe_list
+@safe([])
 @cached(ttl=300)
 def search_anime(query):
     q = query.replace(' ', '-')
@@ -15,7 +15,7 @@ def search_anime(query):
     ]
 
 
-@safe_list
+@safe([])
 @cached(ttl=300)
 def episodes(url):
     soup = fetch_soup(url)
@@ -27,7 +27,7 @@ def episodes(url):
     ]
 
 
-@safe_dict
+@safe({})
 @cached(ttl=60)
 def downloads(url):
     soup = fetch_soup(url)

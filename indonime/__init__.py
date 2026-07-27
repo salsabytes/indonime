@@ -26,10 +26,13 @@ def _play_episode(episode_url, plugin, custom_style):
         dl_links = plugin.downloads(episode_url)
 
     options = []
+    opt_map = {}
     for res, servers in dl_links.items():
         for s_name, s_url in servers.items():
             if any(x in s_name.lower() for x in ['pdrain', 'pixeldrain', 'mega']):
-                options.append({'name': f'[{res}] {s_name}', 'value': s_url, 'raw_name': f'[{res}] {s_name}'})
+                label = f'[{res}] {s_name}'
+                options.append({'name': label, 'value': s_url, 'raw_name': label})
+                opt_map[s_url] = label
 
     if not options:
         print_warning("No compatible servers found.")
@@ -39,7 +42,7 @@ def _play_episode(episode_url, plugin, custom_style):
     if not selected_opt:
         return False
     server_url = selected_opt
-    last_selected_server_name = next(opt['raw_name'] for opt in options if opt['value'] == server_url)
+    last_selected_server_name = opt_map[server_url]
 
     final_target = None
     is_temp = False
@@ -96,7 +99,7 @@ def _play_episode(episode_url, plugin, custom_style):
         return False
 
 
-def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_banner=True, show_quality=True):
+def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_banner=True):
     """Episode pick -> play -> post-play. Returns 'back' or 'quit'."""
     idx = 0
     while True:
@@ -122,9 +125,7 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_
             return 'back'
 
         print_separator()
-        post_choices = ['▶  NEXT', '◀  PREV', '↺  REPLAY', '✖  QUIT']
-        if show_quality:
-            post_choices.insert(-1, '⚙  QUALITY')
+        post_choices = ['▶  NEXT', '◀  PREV', '↺  REPLAY', '⚙  QUALITY', '✖  QUIT']
         cmd = inquirer.select(message="🎮  Command:", choices=post_choices, style=custom_style, qmark="").execute()
 
         if cmd == '▶  NEXT':
@@ -215,7 +216,7 @@ def _tui_loop():
             time.sleep(2)
             continue
 
-        if _episode_nav(episode_list, _plugin, custom_style, back_label='<< BACK TO SEARCH', show_banner=True, show_quality=True) == 'quit':
+        if _episode_nav(episode_list, _plugin, custom_style, back_label='<< BACK TO SEARCH', show_banner=True) == 'quit':
             break
 
     print_banner()
@@ -260,7 +261,7 @@ def _search_mode(query, provider='otakudesu'):
         input('[Press Enter]')
         return
 
-    _episode_nav(episode_list, plugin, custom_style, back_label='<< QUIT', show_banner=False, show_quality=False)
+    _episode_nav(episode_list, plugin, custom_style, back_label='<< QUIT', show_banner=False)
 
     if player.current_mpv_process and player.current_mpv_process.poll() is None:
         player.current_mpv_process.wait()

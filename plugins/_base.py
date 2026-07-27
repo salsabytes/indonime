@@ -60,20 +60,13 @@ def _safe_err(fn, e, fallback, args, kwargs):
     print(hint[:200], file=sys.stderr)  # ponytail: trim for readability
     return fallback
 
-def safe_list(fn):
-    """Catch-all → empty list. Errors printed to stderr."""
-    def wrap(*a, **kw):
-        try:
-            return fn(*a, **kw)
-        except Exception as e:
-            return _safe_err(fn, e, [], a, kw)
-    return wrap
-
-def safe_dict(fn):
-    """Catch-all → empty dict. Errors printed to stderr."""
-    def wrap(*a, **kw):
-        try:
-            return fn(*a, **kw)
-        except Exception as e:
-            return _safe_err(fn, e, {}, a, kw)
-    return wrap
+def safe(fb):
+    """Catch-all decorator → fallback value on error. Errors printed to stderr."""
+    def dec(fn):
+        def wrap(*a, **kw):
+            try:
+                return fn(*a, **kw)
+            except Exception as e:
+                return _safe_err(fn, e, fb, a, kw)
+        return wrap
+    return dec

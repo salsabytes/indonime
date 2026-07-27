@@ -59,13 +59,8 @@ def _find_mpv():
     import setup_mpv
     setup_mpv.main()
 
-    path_mpv = (BASE_DIR / "mpv" / mpv_name).resolve()
     if path_mpv.exists():
         return path_mpv
-
-    in_path = shutil.which("mpv")
-    if in_path:
-        return Path(in_path)
 
     console.print("[red]✘ mpv installation failed. Install manually.[/red]")
     return None

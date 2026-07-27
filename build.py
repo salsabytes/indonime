@@ -41,7 +41,7 @@ def build():
     subprocess.run(cmd, check=True)
 
     # Nuitka names .dist folder after input file, not --output-filename
-    dist_name = f"{os.path.splitext('main.py')[0]}.dist"
+    dist_name = "main.dist"
     dist_dir = os.path.join(OUTPUT_DIR, dist_name)
     destination_dir = os.path.join(ROOT_DIR, f"{EXE_NAME}_dist")
 
