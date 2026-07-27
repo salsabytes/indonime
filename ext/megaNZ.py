@@ -4,6 +4,7 @@ import requests
 import base64
 import threading
 import queue
+import time
 from pathlib import Path
 
 _SESSION = requests.Session()  # reuse TCP connection for MEGA API + download
@@ -277,7 +278,6 @@ def resolve_mega_file_parallel(url, file_id, console, num_connections=3, early_m
 
     ready = threading.Event()
     stop = threading.Event()
-    early_bytes = early_mb * 1024 * 1024
     CHUNK = chunk_mb * 1024 * 1024
 
     chunk_lock = threading.Lock()
@@ -328,8 +328,6 @@ def resolve_mega_file_parallel(url, file_id, console, num_connections=3, early_m
 
                 with total_lock:
                     total_written += written
-                    if not ready.is_set() and total_written >= early_bytes:
-                        ready.set()
 
             except Exception:
                 pass  # individual chunk failure — other threads fill the gap
@@ -338,11 +336,42 @@ def resolve_mega_file_parallel(url, file_id, console, num_connections=3, early_m
                for _ in range(max(1, num_connections))]
 
     def _monitor():
+        _t0 = time.time()
         for t in threads:
             t.start()
+
+        # Wait for 2 chunks (8MB) to measure real-world speed
+        target = 2 * CHUNK
+        while True:
+            with total_lock:
+                done = total_written
+            if done >= target:
+                break
+            alive = any(t.is_alive() for t in threads)
+            if not alive:
+                break
+            time.sleep(0.1)
+
+        # Adaptive buffer: 10 seconds of download time, clamp 2-32 MB
+        elapsed = time.time() - _t0
+        speed = done / elapsed if elapsed > 0 else 1  # bytes/sec
+        desired = int(speed * 10)
+        desired = max(2 * 1024 * 1024, min(desired, 32 * 1024 * 1024))
+
+        # Wait until adaptive threshold reached or all threads finish
+        while True:
+            with total_lock:
+                written = total_written
+            if written >= desired:
+                break
+            alive = any(t.is_alive() for t in threads)
+            if not alive:
+                break
+            time.sleep(0.1)
+
+        ready.set()  # unblock caller → launch mpv
         for t in threads:
             t.join()
-        ready.set()  # always unblock caller
 
     monitor = threading.Thread(target=_monitor, daemon=True)
     monitor.start()
