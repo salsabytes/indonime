@@ -14,7 +14,7 @@ current_mpv_process = None
 _mpv_path = None
 
 
-def play_with_mpv(video_target, is_temp_file=False):
+def play_with_mpv(video_target, is_temp_file=False, cleanup=True):
     global current_mpv_process, _mpv_path
     if current_mpv_process and current_mpv_process.poll() is None:
         current_mpv_process.terminate()
@@ -30,7 +30,7 @@ def play_with_mpv(video_target, is_temp_file=False):
     try:
         if is_temp_file:
             subprocess.run(mpv_args)
-            if os.path.exists(video_target):
+            if cleanup and os.path.exists(video_target):
                 os.remove(video_target)
         else:
             current_mpv_process = subprocess.Popen(mpv_args)

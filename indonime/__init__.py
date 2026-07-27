@@ -1,6 +1,7 @@
 """Indonime TUI — search → select → play loop."""
 import argparse
 import importlib
+import os
 import pkgutil
 import time
 
@@ -60,10 +61,22 @@ def _play_episode(episode_url, plugin, custom_style):
                 final_mega_url = final_mega_url.replace("#!", "file/").replace("!", "#", 1)
             try:
                 f_id = final_mega_url.split("file/")[1].split("#")[0]
-                final_target = megaNZ.resolve_mega_file(final_mega_url, f_id, console)
-                is_temp = True
+                stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id, console)
+                if stream is None:
+                    return False
+                path, ready, stop, dl_thread = stream
+                print_step("Buffering...")
+                ready.wait()  # ~2MB first, then launch mpv
+                print_step("Launching mpv player...")
+                player.play_with_mpv(path, is_temp_file=True, cleanup=False)
+                # mpv exited — signal download thread, wait for it, then delete
+                stop.set()
+                dl_thread.join(timeout=10)
+                if os.path.exists(path):
+                    os.remove(path)
+                return True
             except Exception as e:
-                print_error(f"Gagal Dekripsi: {e}")
+                print_error(f"Gagal Streaming: {e}")
                 time.sleep(3)
                 return False
         else:
