@@ -1,73 +1,48 @@
-import requests
-from bs4 import BeautifulSoup
+"""Otakudesu provider — search, episodes, download links."""
+from ._base import HEADERS, fetch_soup, cached, safe_list, safe_dict
 
-HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-}
+BASE = 'https://otakudesu.blog'
 
+
+@safe_list
+@cached(ttl=300)
 def search_anime(query):
-  q = query.replace(' ', '+')
-  url = f"https://otakudesu.blog/?s={q}&post_type=anime"
-  try:
-    res = requests.get(url, headers=HEADERS)
-    res.raise_for_status()
-    soup = BeautifulSoup(res.text, 'html.parser')
-    results = soup.find_all('li', style="list-style:none;")
-    lists = []
-    for i in results:
-      lists.append({
-        'title': i.find('h2').text.strip(),
-        'url': i.find('a')['href']
-      })
-    return lists
-  except Exception as e:
-    return []
+    q = query.replace(' ', '+')
+    soup = fetch_soup(f'{BASE}/?s={q}&post_type=anime')
+    return [
+        {'title': li.find('h2').text.strip(), 'url': li.find('a')['href']}
+        for li in soup.find_all('li', style='list-style:none;')
+    ]
 
+
+@safe_list
+@cached(ttl=300)
 def episodes(url):
-  try:
-    res = requests.get(url, headers=HEADERS)
-    res.raise_for_status()
-    soup = BeautifulSoup(res.text, 'html.parser')
-    container = soup.find_all('div', class_='episodelist')
+    soup = fetch_soup(url)
     target = None
+    for c in soup.find_all('div', class_='episodelist'):
+        text = c.get_text().lower()
+        if 'episode list' in text and 'batch' not in text:
+            target = c
+            break
+    if not target:
+        return []
+    eps = [
+        {'title': a.text.strip(), 'url': a['href']}
+        for a in target.find_all('a') if 'episode' in a['href']
+    ]
+    return eps[::-1]
 
-    for c in container:
-      text = c.get_text().lower()
-      if 'episode list' in text and 'batch' not in text:
-        target = c
-        break
 
-    if not target: return []
-
-    ep_list = []
-    for a in target.find_all('a'):
-      if 'episode' in a['href']:
-        ep_list.append({
-          'title': a.text.strip(),
-          'url': a['href']
-        })
-    return ep_list[::-1]
-  except Exception as e:
-    return []
-
+@safe_dict
 def downloads(url):
-  try:
-    res = requests.get(url, headers=HEADERS)
-    res.raise_for_status()
-    soup = BeautifulSoup(res.text, 'html.parser')
+    soup = fetch_soup(url)
     dl_div = soup.find('div', class_='download')
-
-    if not dl_div: return {}
-
-    all_links = {}
+    if not dl_div:
+        return {}
+    result = {}
     for li in dl_div.find_all('li'):
-      res_key = li.find('strong').text.strip()
-      links = {}
-      for a in li.find_all('a'):
-        server_name = a.text.strip()
-        server_url = a['href']
-        links[server_name] = server_url
-        all_links[res_key] = links
-    return all_links
-  except Exception as e:
-    return {}
+        res_key = li.find('strong').text.strip()
+        links = {a.text.strip(): a['href'] for a in li.find_all('a')}
+        result[res_key] = links
+    return result
