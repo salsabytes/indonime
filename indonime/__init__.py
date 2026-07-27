@@ -63,7 +63,7 @@ def _play_episode(episode_url, plugin, custom_style):
                 final_mega_url = final_mega_url.replace("#!", "file/").replace("!", "#", 1)
             try:
                 f_id = final_mega_url.split("file/")[1].split("#")[0]
-                stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id, console)
+                stream = megaNZ.resolve_mega_file_parallel(final_mega_url, f_id, console)
                 if stream is None:
                     return False
                 path, ready, stop, dl_thread = stream
