@@ -28,7 +28,7 @@ Dari `Indonime.exe` sampe nonton cuma butuh beberapa detik.
 ### Portable
 Buat yang mau langsung pakai tanpa ribet:
 1. Download di [Releases](https://github.com/salsabytes/indonime/releases).
-2. Ekstrak, tinggal pake `Indonime.exe`.
+2. Ekstrak, tinggal pakai `Indonime.exe`.
 
 ### Minimal Punya
 - Python 3.10+
@@ -54,7 +54,33 @@ Pastiin kamu punya Python 3.10+, Git, sama Visual Studio Build Tools (Desktop de
    ```
 
 ### ⚡ Quick Start
-#### Run
+#### Run (Dev)
 ```bash
 python main.py
+```
+
+Atau install sebagai command global (recommended):
+```bash
+pip install -e .
+indonime                    # TUI mode
+indonime search one piece   # langsung search
+```
+
+Juga bisa:
+```bash
+python -m indonime           # TUI mode
+python main.py               # TUI mode (legacy)
+```
+
+#### CLI Mode (v1.1.0+)
+Kalo pake executable dari release:
+```bash
+indonime                    # TUI mode
+indonime search one piece   # langsung search
+indonime search one piece -p anoboy
+```
+
+Biar `indonime` command work dari mana aja, tambah folder release ke PATH:
+```cmd
+setx PATH "%PATH%;C:\path\ke\Indonime_dist"
 ```

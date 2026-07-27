@@ -3,7 +3,7 @@ import pybind11
 
 ext_modules = [
   Extension(
-    'megadec',
+    'videodec',
     ['src/decoder.cpp'],
     include_dirs=[pybind11.get_include()],
     language='c++',
@@ -12,6 +12,17 @@ ext_modules = [
 ]
 
 setup(
-  name='megadec',
+  name='indonime',
+  packages=['indonime', 'ext', 'plugins'],
   ext_modules=ext_modules,
+  install_requires=[
+    'requests',
+    'beautifulsoup4',
+    'InquirerPy',
+    'rich',
+  ],
+  entry_points={
+    'console_scripts': ['indonime=indonime:main'],
+  },
+  python_requires='>=3.10',
 )

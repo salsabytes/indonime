@@ -60,7 +60,7 @@ void expand(const uint8_t* k, uint8_t* rk) {
   }
 }
 
-py::bytes decrypt(py::bytes enc, py::bytes key, py::bytes iv, size_t offset) {
+py::bytes decode(py::bytes enc, py::bytes key, py::bytes iv, size_t offset) {
   std::string d = enc, k = key, v = iv;
   uint8_t rk[176], ctr[16], ks[16];
   expand((uint8_t*)k.data(), rk);
@@ -82,6 +82,6 @@ py::bytes decrypt(py::bytes enc, py::bytes key, py::bytes iv, size_t offset) {
   return py::bytes(d);
 }
 
-PYBIND11_MODULE(megadec, m) {
-  m.def("decrypt", &decrypt);
+PYBIND11_MODULE(videodec, m) {
+  m.def("decode", &decode);
 }
