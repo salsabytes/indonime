@@ -4,7 +4,11 @@ import pkgutil
 import time
 
 from . import player
-from .ui import console, print_banner, make_style
+from .ui import (
+  console, print_banner, print_header, print_step,
+  print_success, print_error, print_warning, print_separator,
+  make_episode_table, make_footer, styled_status, make_style,
+)
 
 import plugins
 import requests
@@ -14,7 +18,7 @@ from ext import pdrain, megaNZ
 
 def _play_episode(episode_url, plugin, custom_style):
   """Resolve stream and play. Returns True if played successfully."""
-  with console.status(f'[bold cyan]Resolving stream...[/bold cyan]'):
+  with console.status(styled_status("🔍 Resolving stream...")):
     dl_links = plugin.downloads(episode_url)
 
   options = []
@@ -24,10 +28,10 @@ def _play_episode(episode_url, plugin, custom_style):
         options.append({'name': f'[{res}] {s_name}', 'value': s_url, 'raw_name': f'[{res}] {s_name}'})
 
   if not options:
-    console.print(f'[yellow]⚠ No compatible servers found.[/yellow]')
+    print_warning("No compatible servers found.")
     return False
 
-  selected_opt = inquirer.select(message='Select Quality...', choices=options, style=custom_style).execute()
+  selected_opt = inquirer.select(message='📥  Select quality:', choices=options, style=custom_style).execute()
   if not selected_opt:
     return False
   server_url = selected_opt
@@ -38,16 +42,16 @@ def _play_episode(episode_url, plugin, custom_style):
 
   if 'mega' in last_selected_server_name.lower():
     final_mega_url = None
-    with console.status(f"[bold yellow]Resolving Mega Link...[/bold yellow]"):
+    with console.status(styled_status("🔓 Resolving Mega link...")):
       try:
         resp = requests.get(server_url, allow_redirects=True, timeout=15)
         curr = resp.url
         if "mega.nz" in curr and ("#" in curr or "#!" in curr):
           final_mega_url = curr
         else:
-          console.print(f"[red]✘ Redirect tidak mengarah ke Mega.[/red]")
+          print_error("Redirect tidak mengarah ke Mega.")
       except Exception as e:
-        console.print(f"[red]✘ Requests Error: {e}[/red]")
+        print_error(f"Requests Error: {e}")
         time.sleep(3)
 
     if final_mega_url:
@@ -58,19 +62,21 @@ def _play_episode(episode_url, plugin, custom_style):
         final_target = megaNZ.resolve_mega_file(final_mega_url, f_id, console)
         is_temp = True
       except Exception as e:
-        console.print(f"[red]✘ Gagal Dekripsi: {e}[/red]")
+        print_error(f"Gagal Dekripsi: {e}")
         time.sleep(3)
         return False
     else:
-      console.print("[red]✘ Timeout: Gagal mendapatkan link Mega.[/red]")
+      print_error("Timeout: Gagal mendapatkan link Mega.")
       return False
   else:
+    print_step("Bypassing PixelDrain link...")
     final_target = pdrain.scrape(server_url)
 
   if final_target:
+    print_step("Launching mpv player...")
     return player.play_with_mpv(final_target, is_temp_file=is_temp)
   else:
-    console.print(f'[red]✘ Stream resolution failed.[/red]')
+    print_error("Stream resolution failed.")
     return False
 
 
@@ -81,27 +87,36 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_
     if show_banner:
       print_banner()
 
-    ep_choices = [{'name': f'EP {str(i+1).zfill(2)} > {ep["title"]}', 'value': i} for i, ep in enumerate(episode_list)]
-    ep_choices.append({'name': back_label, 'value': 'back'})
+    print_header("📋 EPISODES")
+    console.print(make_episode_table(episode_list))
+    print_separator()
 
-    selected = inquirer.select(message='Select Episode:', choices=ep_choices, default=idx, style=custom_style).execute()
+    ep_choices = [{'name': f'  EP{str(i+1).zfill(2)}', 'value': i} for i, _ in enumerate(episode_list)]
+    ep_choices.append({'name': f'  ↩ {back_label}', 'value': 'back'})
+    selected = inquirer.select(message='▶  Select episode:', choices=ep_choices, default=idx, style=custom_style, qmark="").execute()
     if selected == 'back' or selected is None:
       return 'back'
     idx = selected
 
+    print_header("🎬 NOW PLAYING")
     if not _play_episode(episode_list[idx]['url'], plugin, custom_style):
       time.sleep(2)
       return 'back'
 
-    post_choices = ['▶ NEXT', '◀ PREV', '↺ REPLAY', '✖ QUIT']
+    print_separator()
+    post_choices = ['▶  NEXT', '◀  PREV', '↺  REPLAY', '✖  QUIT']
     if show_quality:
-      post_choices.insert(-1, '⚙ QUALITY')
-    cmd = inquirer.select(message="Command:", choices=post_choices, style=custom_style).execute()
+      post_choices.insert(-1, '⚙  QUALITY')
+    cmd = inquirer.select(message="🎮  Command:", choices=post_choices, style=custom_style, qmark="").execute()
 
-    if cmd == '▶ NEXT': idx += 1
-    elif cmd == '◀ PREV': idx -= 1
-    elif cmd in ('↺ REPLAY', '⚙ QUALITY'): continue
-    else: return 'quit'
+    if cmd == '▶  NEXT':
+      idx += 1
+    elif cmd == '◀  PREV':
+      idx -= 1
+    elif cmd in ('↺  REPLAY', '⚙  QUALITY'):
+      continue
+    else:
+      return 'quit'
 
 
 def _tui_loop():
@@ -116,69 +131,115 @@ def _tui_loop():
       plugin = importlib.import_module(f'plugins.{p_name}')
       importlib.reload(plugin)
     except Exception as e:
-      console.print(f'[red]Error Plugin: {e}[/red]'); time.sleep(2); continue
+      print_error(f"Plugin error: {e}")
+      time.sleep(2)
+      continue
 
     is_switching = False
     try:
-      prompt = inquirer.text(message='Search Query:', qmark='[SCAN]', instruction='[ALT+P to Switch]', style=custom_style, validate=lambda x: True if is_switching else len(x) > 0)
+      prompt = inquirer.text(
+        message='🔍  Search anime:',
+        qmark='',
+        instruction='[alt+p] switch provider',
+        style=custom_style,
+        validate=lambda x: True if is_switching else len(x) > 0,
+      )
       @prompt.register_kb('alt-p')
       def _(event):
         nonlocal is_switching
         is_switching = True
         event.app.exit(result='/switch')
       result = prompt.execute()
-    except KeyboardInterrupt: break
+    except KeyboardInterrupt:
+      break
 
     if result == '/switch':
-      new_p = inquirer.select(message='Select Provider:', choices=available_providers, qmark='[PROV]', style=custom_style).execute()
-      if new_p: p_name = new_p
+      new_p = inquirer.select(
+        message='📡  Select provider:',
+        choices=available_providers,
+        qmark='',
+        style=custom_style,
+      ).execute()
+      if new_p:
+        p_name = new_p
       continue
-    if not result: break
+    if not result:
+      break
 
-    with console.status(f'[bold green]Searching for "{result}"...[/bold green]'):
+    print_header("🔎 SEARCHING")
+    with console.status(styled_status(f'Searching for "{result}"...')):
       results = plugin.search_anime(result)
 
     if not results:
-      console.print(f'[yellow]No results found.[/yellow]'); time.sleep(2); continue
+      print_warning("No results found.")
+      time.sleep(2)
+      continue
 
     choices = [item['title'] for item in results] + ['-- ABORT --']
-    selected_title = inquirer.fuzzy(message='Select Title:', choices=choices, style=custom_style).execute()
-    if selected_title == '-- ABORT --' or not selected_title: continue
+    selected_title = inquirer.fuzzy(
+      message='📺  Select title:',
+      choices=choices,
+      style=custom_style,
+    ).execute()
+    if selected_title == '-- ABORT --' or not selected_title:
+      continue
 
     selected_url = next(item['url'] for item in results if item['title'] == selected_title)
-    episode_list = plugin.episodes(selected_url)
+
+    print_header("📋 EPISODES")
+    with console.status(styled_status("Fetching episode list...")):
+      episode_list = plugin.episodes(selected_url)
+
+    if not episode_list:
+      print_warning("No episodes found.")
+      time.sleep(2)
+      continue
 
     if _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK TO SEARCH', show_banner=True, show_quality=True) == 'quit':
       break
+
+  print_banner()
+  make_footer()
+  print_success("Thanks for using Indonime! ~ Sayonara ~")
 
 
 def _search_mode(query, provider='otakudesu'):
   """One-shot search -> play -> exit."""
   custom_style = make_style()
+  print_banner()
 
   try:
     plugin = importlib.import_module(f'plugins.{provider}')
     importlib.reload(plugin)
   except Exception as e:
-    console.print(f'[red]Error Plugin: {e}[/red]')
+    print_error(f"Plugin error: {e}")
     input('[Press Enter]')
     return
 
-  with console.status(f'[bold green]Searching for "{query}"...[/bold green]'):
+  print_header("🔎 SEARCHING")
+  with console.status(styled_status(f'Searching for "{query}"...')):
     results = plugin.search_anime(query)
 
   if not results:
-    console.print(f'[yellow]No results found.[/yellow]')
+    print_warning("No results found.")
     input('[Press Enter]')
     return
 
   choices = [item['title'] for item in results] + ['-- ABORT --']
-  selected_title = inquirer.fuzzy(message='Select Title:', choices=choices, style=custom_style).execute()
+  selected_title = inquirer.fuzzy(message='📺  Select title:', choices=choices, style=custom_style).execute()
   if selected_title == '-- ABORT --' or not selected_title:
     return
 
   selected_url = next(item['url'] for item in results if item['title'] == selected_title)
-  episode_list = plugin.episodes(selected_url)
+
+  print_header("📋 EPISODES")
+  with console.status(styled_status("Fetching episode list...")):
+    episode_list = plugin.episodes(selected_url)
+
+  if not episode_list:
+    print_warning("No episodes found.")
+    input('[Press Enter]')
+    return
 
   _episode_nav(episode_list, plugin, custom_style, back_label='<< QUIT', show_banner=False, show_quality=False)
 
