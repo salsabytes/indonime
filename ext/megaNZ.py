@@ -225,8 +225,8 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
 def resolve_mega_file_parallel(url, file_id, console, num_connections=3, early_mb=2, chunk_mb=4):
     """Download+decrypt MEGA via parallel Range requests (work-stealing chunks).
 
-    Returns same (temp_path, ready_event, stop_event, monitor_thread) as stream version.
-    First ~4MB arrives in 1/num_connections the time vs single-stream.
+    Returns (temp_path, ready_event, stop_event, monitor_thread, progress_info) on success.
+    progress_info is a mutable list [downloaded, total] updated in realtime by the monitor.
     """
     if not _decryptor:
         console.print("[red]✘ Tidak ada AES backend. Install: pip install cryptography[/red]")
@@ -249,6 +249,9 @@ def resolve_mega_file_parallel(url, file_id, console, num_connections=3, early_m
         if file_size > 0:
             f.seek(file_size - 1)
             f.write(b"\x00")
+
+    # Shared mutable progress tracker (updated by _monitor, read by caller)
+    prog_info = [0, file_size, 0]  # [downloaded, total, buffer_target]
 
     ready = threading.Event()
     stop = threading.Event()
@@ -310,6 +313,7 @@ def resolve_mega_file_parallel(url, file_id, console, num_connections=3, early_m
                for _ in range(max(1, num_connections))]
 
     def _monitor():
+        nonlocal next_chunk, total_written
         _t0 = time.time()
         for t in threads:
             t.start()
@@ -319,6 +323,7 @@ def resolve_mega_file_parallel(url, file_id, console, num_connections=3, early_m
         while True:
             with total_lock:
                 done = total_written
+            prog_info[0] = done
             if done >= target:
                 break
             alive = any(t.is_alive() for t in threads)
@@ -331,10 +336,12 @@ def resolve_mega_file_parallel(url, file_id, console, num_connections=3, early_m
         speed = done / elapsed if elapsed > 0 else 1
         desired = int(speed * 10)
         desired = max(2 * 1024 * 1024, min(desired, 32 * 1024 * 1024))
+        prog_info[2] = desired  # expose buffer target for progress bar
 
         while True:
             with total_lock:
                 written = total_written
+            prog_info[0] = written
             if written >= desired:
                 break
             alive = any(t.is_alive() for t in threads)
@@ -349,4 +356,4 @@ def resolve_mega_file_parallel(url, file_id, console, num_connections=3, early_m
     monitor = threading.Thread(target=_monitor, daemon=True)
     monitor.start()
 
-    return _TEMP_PATH, ready, stop, monitor
+    return _TEMP_PATH, ready, stop, monitor, prog_info

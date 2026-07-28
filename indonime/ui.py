@@ -1,27 +1,52 @@
-"""Rich UI helpers — banner, tables, styles."""
+"""Rich UI helpers — banner, tables, styles, components."""
 from InquirerPy.utils import get_style
 from rich.console import Console
 from rich.text import Text
 from rich.panel import Panel
 from rich.table import Table
 from rich.rule import Rule
+from rich.progress import (
+    Progress, BarColumn, TextColumn, TimeElapsedColumn,
+    SpinnerColumn, TaskProgressColumn, DownloadColumn,
+)
 from rich.columns import Columns
 from rich.align import Align
-from rich.box import ROUNDED, HEAVY_HEAD
+from rich.box import ROUNDED, HEAVY_HEAD, MINIMAL, SQUARE
+from rich.style import Style
 
 console = Console()
 
+# ── Color palette ────────────────────────────────────────────────
+class Palette:
+    primary   = "#00d4ff"   # cyan electric
+    secondary = "#a855f7"   # purple
+    accent    = "#f97316"   # orange
+    success   = "#22c55e"   # green
+    error     = "#ef4444"   # red
+    warning   = "#eab308"   # yellow
+    muted     = "#6b7280"   # gray
+    border    = "#374151"   # dark gray
+    text      = "#d1d5db"   # light gray
+    dim       = "#4b5563"   # dim gray
+    surface   = "#1f2937"   # dark surface
+    highlight = "#2dd4bf"   # teal
+
+# ── Banner ────────────────────────────────────────────────────────
 BANNER_ART = r"""
-   ___           _             _                 
-  |_ _|_ __   __| | ___  _ __ (_)_ __ ___   ___  
-   | || '_ \ / _` |/ _ \| '_ \| | '_ ` _ \ / _ \ 
-   | || | | | (_| | (_) | | | | | | | | | | |__/
-  |___|_| |_|\__,_|\___/|_| |_|_|_| |_| |_|\___|
+   ▄▄▄▄▄▄▄    ▄▄▄▄▄▄   ▄▄▄▄▄▄▄   ▄       ▄
+   ██▀▀▀▀▀██  ██▀▀▀▀██  ██▀▀▀▀▀▀  ██       ██
+   ██    ██   ██    ██  ██         ██       ██
+   ██████▀    ███████   ███████    ██       ██
+   ██         ██   ▀██  ██         ██       ██
+   ██         ██    ██  ██▄▄▄▄▄▄  ██▄▄▄▄▄▄██
+   ▀▀         ▀▀    ▀▀  ▀▀▀▀▀▀▀▀  ▀▀▀▀▀▀▀▀
 """
 
 
-def _gradient_text(text: str, start_color: str = "#00d4ff", end_color: str = "#a855f7") -> Text:
-    """Apply a horizontal gradient across text."""
+def _gradient_text(text: str, colors: list[str] = None) -> Text:
+    """Multi-color gradient across text lines."""
+    if colors is None:
+        colors = ["#00d4ff", "#2dd4bf", "#a855f7"]
     lines = text.splitlines()
     result = Text()
     for li, line in enumerate(lines):
@@ -34,7 +59,13 @@ def _gradient_text(text: str, start_color: str = "#00d4ff", end_color: str = "#a
                 result.append(" ")
             else:
                 t = ci / max(n - 1, 1)
-                result.append(ch, style=_lerp_color(start_color, end_color, t))
+                # pick segment
+                seg = t * (len(colors) - 1)
+                seg_i = int(seg)
+                seg_t = seg - seg_i
+                c1 = colors[min(seg_i, len(colors) - 1)]
+                c2 = colors[min(seg_i + 1, len(colors) - 1)]
+                result.append(ch, style=_lerp_color(c1, c2, seg_t))
         if li < len(lines) - 1:
             result.append("\n")
     return result
@@ -51,7 +82,7 @@ def _lerp_color(a: str, b: str, t: float) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-# ── Cached banner panel ───────────────────────────────────────────
+# ── Cached banner ─────────────────────────────────────────────────
 _BANNER_PANEL = None
 
 def print_banner():
@@ -59,112 +90,181 @@ def print_banner():
     global _BANNER_PANEL
     console.clear()
     if _BANNER_PANEL is None:
-        gradient = _gradient_text(BANNER_ART, "#00d4ff", "#a855f7")
-        subtitle = Text("  Subtitle Indonesia Anime Searcher", style="italic #6b7280")
+        gradient = _gradient_text(BANNER_ART)
+        subtitle = Text("  Subtitle Indonesia Anime Searcher", style=f"italic {Palette.muted}")
+        version = Text("  v1.0", style=f"dim {Palette.dim}")
+        content = Text.assemble(gradient, "\n", subtitle)
         _BANNER_PANEL = Panel(
-            Align.center(Text.assemble(gradient, "\n", subtitle)),
+            Align.center(content),
             box=ROUNDED,
-            border_style="#00d4ff",
-            padding=(1, 2),
+            border_style=Palette.primary,
+            padding=(1, 3),
+            subtitle="✦  cari · tonton · nikmati  ✦",
+            subtitle_align="center",
         )
     console.print(_BANNER_PANEL)
 
 
-def print_header(title: str):
-    """Section header with a styled rule."""
+# ── Section header ────────────────────────────────────────────────
+def print_header(title: str, icon: str = ""):
+    """Section header with styled rule."""
     console.print()
-    console.print(Rule(title=Text(title, style="bold #f97316"), style="#374151"))
+    label = f"  {icon}  {title}" if icon else f"    {title}"
+    console.print(Rule(title=Text(label, style=f"bold {Palette.accent}"), style=Palette.border))
     console.print()
 
 
-def styled_status(message: str):
+# ── Status & messages ────────────────────────────────────────────
+def styled_status(message: str) -> str:
     """Return a styled status spinner message."""
-    return f"[bold #00d4ff]{message}[/bold #00d4ff]"
+    return f"[bold {Palette.primary}]{message}[/bold {Palette.primary}]"
 
 
 def print_step(msg: str):
-    """Print a progress step indicator."""
-    console.print(f"  [bold #00d4ff]➜[/bold #00d4ff]  {msg}")
+    """Progress step with arrow indicator."""
+    console.print(f"  [bold {Palette.primary}]➜[/bold {Palette.primary}]  [dim]{msg}[/dim]")
 
 
 def print_success(msg: str):
     """Green success message."""
-    console.print(f"  [bold green]✓[/bold green]  {msg}")
+    console.print(f"  [bold {Palette.success}]✓[/bold {Palette.success}]  {msg}")
 
 
 def print_error(msg: str):
     """Red error message."""
-    console.print(f"  [bold red]✘[/bold red]  {msg}")
+    console.print(f"  [bold {Palette.error}]✘[/bold {Palette.error}]  {msg}")
 
 
 def print_warning(msg: str):
     """Yellow warning message."""
-    console.print(f"  [bold yellow]⚠[/bold yellow]  {msg}")
+    console.print(f"  [bold {Palette.warning}]⚠[/bold {Palette.warning}]  {msg}")
+
+
+def print_info(msg: str):
+    """Info message in muted style."""
+    console.print(f"  [bold {Palette.muted}]ℹ[/bold {Palette.muted}]  [italic]{msg}[/italic]")
 
 
 def print_separator():
     """A faint horizontal rule."""
-    console.print(Rule(style="#1f2937"))
+    console.print()
+    console.print(Rule(style=Palette.surface))
+    console.print()
 
 
-# ── Cached episode table (identity-based — same list = skip rebuild) ──
-_last_table_eps = None
-_last_table = None
-
+# ── Episode Table ─────────────────────────────────────────────────
+_LAST_TABLE_EPS = None
+_LAST_TABLE = None
 
 def make_episode_table(episode_list) -> Table:
-    """Create a Rich Table for episode list display.
-    Cached: returns the same Table object when list reference is unchanged.
-    """
-    global _last_table_eps, _last_table
-    if _last_table_eps is episode_list:
-        return _last_table
+    """Create a polished Rich Table for episode display. Cached per list identity."""
+    global _LAST_TABLE_EPS, _LAST_TABLE
+    if _LAST_TABLE_EPS is episode_list:
+        return _LAST_TABLE
 
     table = Table(
-        box=HEAVY_HEAD,
-        border_style="#374151",
-        header_style="bold #00d4ff",
-        title="[bold]📋 Episode List[/bold]",
-        title_style="#6b7280",
-        padding=(0, 1),
-        show_lines=False,
+        box=SQUARE,
+        border_style=Palette.border,
+        header_style=Style(color=Palette.primary, bold=True),
+        title=f"[bold]📋  Episode List  —  [dim]{len(episode_list)} eps[/dim][/bold]",
+        title_style=Palette.muted,
+        padding=(0, 2),
+        show_edge=True,
+        show_lines=True,
+        expand=True,
     )
-    table.add_column("#", style="#a855f7", width=6, no_wrap=True)
-    table.add_column("Title", style="#d1d5db")
-    table.add_column("", style="#4b5563", width=4)
+    table.add_column(" EP", style=Palette.secondary, width=7, no_wrap=True, justify="center")
+    table.add_column("Title", style=Palette.text, ratio=1)
+    table.add_column("", style=Palette.dim, width=3, justify="center")
 
     for i, ep in enumerate(episode_list):
-        table.add_row(
-            f"EP{str(i + 1).zfill(2)}",
-            ep["title"][:60],
-            "▶",
-        )
+        ep_num = f"EP{i+1:02d}"
+        title = (ep["title"][:58] + "…") if len(ep["title"]) > 60 else ep["title"]
+        table.add_row(ep_num, title, "▶")
 
-    _last_table_eps = episode_list
-    _last_table = table
+    _LAST_TABLE_EPS = episode_list
+    _LAST_TABLE = table
     return table
 
 
+# ── Post-play command menu ───────────────────────────────────────
+def make_postplay_actions(current_idx: int, total: int) -> list[str]:
+    """Build context-aware post-play command list."""
+    actions = []
+    if current_idx + 1 < total:
+        actions.append("▶  NEXT")
+    if current_idx > 0:
+        actions.append("◀  PREV")
+    # always available
+    if "▶  NEXT" not in actions:
+        # last episode, offer 'replay' as main action
+        actions.insert(0, "↺  REPLAY")
+    actions.append("⚙  QUALITY")
+    actions.append("✖  QUIT")
+    return actions
+
+
+# ── Footer ────────────────────────────────────────────────────────
 def make_footer():
-    """Print a small footer."""
+    """Print a clean centered footer."""
     console.print()
-    console.print(
-        Align.center(
-            Text("✨ made with love for anime fans ✨", style="dim #4b5563 italic")
-        )
+    text = Text.assemble(
+        ("  ✦  ", f"italic dim {Palette.dim}"),
+        ("Indonime", f"italic bold {Palette.secondary}"),
+        ("  —  made with love for anime fans  ✦", f"italic dim {Palette.dim}"),
     )
+    console.print(Align.center(text))
 
 
 def make_style():
+    """Return InquirerPy custom style."""
     return get_style({
-        'questionmark': '#a855f7 bold',
-        'question': '#d1d5db bold',
-        'instruction': '#4b5563 italic',
-        'pointer': '#00d4ff bold',
-        'answered_pointer': '#6b7280',
-        'answer': '#00d4ff',
-        'pager': '#00d4ff',
-        'selected': '#a855f7',
-        'multiselect': '#00d4ff',
-        'longlist': '#d1d5db',
+        'questionmark': f'{Palette.secondary} bold',
+        'question': f'{Palette.text} bold',
+        'instruction': f'{Palette.dim} italic',
+        'pointer': f'{Palette.primary} bold',
+        'answered_pointer': f'{Palette.muted}',
+        'answer': f'{Palette.primary}',
+        'pager': f'{Palette.primary}',
+        'selected': f'{Palette.secondary}',
+        'multiselect': f'{Palette.primary}',
+        'longlist': f'{Palette.text}',
     }, style_override=False)
+
+
+# ── Download Progress Bar ────────────────────────────────────────
+def make_progress_bar(transient=True, show_size=False):
+    """Create a beautifully styled download progress bar.
+
+    Usage:
+        with make_progress_bar() as progress:
+            task = progress.add_task("🌀 Downloading...", total=100)
+            progress.update(task, completed=N)
+    """
+    columns = [
+        SpinnerColumn(spinner_name="dots", style=Palette.primary),
+        TextColumn(
+            "[progress.description]{task.description}",
+            style=Palette.text,
+        ),
+        BarColumn(
+            bar_width=None,
+            style=Palette.surface,
+            complete_style=Palette.primary,
+            pulse_style=Palette.secondary,
+        ),
+    ]
+    if show_size:
+        columns.append(DownloadColumn(binary_units=True))
+    columns.append(TaskProgressColumn(
+        text_format="{task.percentage:>3.0f}%",
+        style=Palette.text,
+    ))
+    columns.append(TimeElapsedColumn())
+
+    return Progress(
+        *columns,
+        console=console,
+        expand=True,
+        transient=transient,
+    )
