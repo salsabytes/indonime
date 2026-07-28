@@ -275,11 +275,18 @@ def resolve_mega_file_parallel(url, file_id, console, num_connections=3, early_m
             start = ci * CHUNK
             end = min(start + CHUNK, file_size)
 
+            headers = {"Range": f"bytes={start}-{end - 1}"}
             try:
-                headers = {"Range": f"bytes={start}-{end - 1}"}
                 resp = _SESSION.get(dl_link, headers=headers, stream=True)
+            except Exception:
+                continue  # network error — retry next chunk
 
+            # Keep file open inside try/finally so handle always closes
+            try:
                 fh = open(_TEMP_PATH, "rb+")
+            except Exception:
+                continue
+            try:
                 fh.seek(start)
 
                 if _decryptor == "cryptography":
@@ -299,21 +306,19 @@ def resolve_mega_file_parallel(url, file_id, console, num_connections=3, early_m
                             break
                         fh.write(videodec.decode(buf, k, iv, off))
                         off += len(buf)
-
-                fh.close()
-                written = end - start
-
-                with total_lock:
-                    total_written += written
-
             except Exception:
-                pass  # individual chunk failure — other threads fill the gap
+                pass  # partial chunk — leave gap, other threads fill
+            finally:
+                fh.close()
+
+            written = end - start
+            with total_lock:
+                total_written += written
 
     threads = [threading.Thread(target=_worker, daemon=True)
                for _ in range(max(1, num_connections))]
 
     def _monitor():
-        nonlocal next_chunk, total_written
         _t0 = time.time()
         for t in threads:
             t.start()
