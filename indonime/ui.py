@@ -4,6 +4,7 @@ from rich.console import Console
 from rich.text import Text
 from rich.panel import Panel
 from rich.table import Table
+import pyfiglet
 from rich.rule import Rule
 from rich.progress import (
     Progress, BarColumn, TextColumn, TimeElapsedColumn,
@@ -32,22 +33,13 @@ class Palette:
     highlight = "#2dd4bf"   # teal
 
 # ── Banner ────────────────────────────────────────────────────────
-BANNER_ART = r"""
-   ▄▄▄▄▄▄▄    ▄▄▄▄▄▄   ▄▄▄▄▄▄▄   ▄       ▄
-   ██▀▀▀▀▀██  ██▀▀▀▀██  ██▀▀▀▀▀▀  ██       ██
-   ██    ██   ██    ██  ██         ██       ██
-   ██████▀    ███████   ███████    ██       ██
-   ██         ██   ▀██  ██         ██       ██
-   ██         ██    ██  ██▄▄▄▄▄▄  ██▄▄▄▄▄▄██
-   ▀▀         ▀▀    ▀▀  ▀▀▀▀▀▀▀▀  ▀▀▀▀▀▀▀▀
-"""
+BANNER_FONT = "big"  # ponytail: swap font string to change style
 
-
-def _gradient_text(text: str, colors: list[str] = None) -> Text:
-    """Multi-color gradient across text lines."""
-    if colors is None:
-        colors = ["#00d4ff", "#2dd4bf", "#a855f7"]
-    lines = text.splitlines()
+def _pyfiglet_gradient(text: str, font: str = BANNER_FONT) -> Text:
+    """Render text with pyfiglet + Rich gradient."""
+    colors = ["#00d4ff", "#2dd4bf", "#a855f7"]
+    art = pyfiglet.figlet_format(text, font=font)
+    lines = art.splitlines()
     result = Text()
     for li, line in enumerate(lines):
         if not line:
@@ -59,10 +51,8 @@ def _gradient_text(text: str, colors: list[str] = None) -> Text:
                 result.append(" ")
             else:
                 t = ci / max(n - 1, 1)
-                # pick segment
                 seg = t * (len(colors) - 1)
-                seg_i = int(seg)
-                seg_t = seg - seg_i
+                seg_i, seg_t = int(seg), seg - int(seg)
                 c1 = colors[min(seg_i, len(colors) - 1)]
                 c2 = colors[min(seg_i + 1, len(colors) - 1)]
                 result.append(ch, style=_lerp_color(c1, c2, seg_t))
@@ -86,13 +76,12 @@ def _lerp_color(a: str, b: str, t: float) -> str:
 _BANNER_PANEL = None
 
 def print_banner():
-    """Clear screen and show the gradient banner."""
+    """Clear screen and show the gradient pyfiglet banner."""
     global _BANNER_PANEL
     console.clear()
     if _BANNER_PANEL is None:
-        gradient = _gradient_text(BANNER_ART)
+        gradient = _pyfiglet_gradient("INDONIME")
         subtitle = Text("  Subtitle Indonesia Anime Searcher", style=f"italic {Palette.muted}")
-        version = Text("  v1.0", style=f"dim {Palette.dim}")
         content = Text.assemble(gradient, "\n", subtitle)
         _BANNER_PANEL = Panel(
             Align.center(content),
