@@ -50,11 +50,6 @@ def fetch_soup(url, headers=HEADERS, timeout=15):
   res.raise_for_status()
   return BeautifulSoup(res.text, 'html.parser')
 
-def _safe_err(fn, e, fallback, args, kwargs):
-  hint = f'[_base] {fn.__name__}{args} -> {type(e).__name__}: {e}'
-  print(hint[:200], file=sys.stderr)  # ponytail: trim for readability
-  return fallback
-
 def safe(fb):
   """Catch-all decorator → fallback value on error."""
   def dec(fn):
@@ -62,6 +57,8 @@ def safe(fb):
       try:
         return fn(*a, **kw)
       except Exception as e:
-        return _safe_err(fn, e, fb, a, kw)
+        hint = f'[_base] {fn.__name__}{a} -> {type(e).__name__}: {e}'
+        print(hint[:200], file=sys.stderr)  # ponytail: trim for readability
+        return fb
     return wrap
   return dec

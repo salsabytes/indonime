@@ -28,27 +28,24 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None):
       dl_links = plugin.downloads(episode_url)
 
     options = []
-    opt_map = {}
     for res, servers in dl_links.items():
       for s_name, s_url in servers.items():
         if any(x in s_name.lower() for x in ['pdrain', 'pixeldrain', 'mega']):
           label = f'[{res}] {s_name}'
-          options.append({'name': label, 'value': s_url})
-          opt_map[s_url] = label
+          options.append({'name': label, 'value': (label, s_url)})
 
     if not options:
       print_warning("No compatible servers found.")
       return False, None
 
-    selected_opt = inquirer.select(
+    selected = inquirer.select(
       message='📥  Select quality & server:',
       choices=options,
       style=custom_style,
     ).execute()
-    if not selected_opt:
+    if not selected:
       return False, None
-    server_url = selected_opt
-    last_selected_server_name = opt_map[server_url]
+    last_selected_server_name, server_url = selected
   else:
     last_selected_server_name = "replay"
 
@@ -119,15 +116,7 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None):
         f"[{Palette.secondary}]🌀 Bypassing PixelDrain link...",
         total=None,
       )
-      import threading as _th
-      result_holder = [None]
-      def _do_scrape():
-        result_holder[0] = pdrain.scrape(server_url)
-      scrape_thread = _th.Thread(target=_do_scrape, daemon=True)
-      scrape_thread.start()
-      while scrape_thread.is_alive():
-        time.sleep(0.1)
-      final_target = result_holder[0]
+      final_target = pdrain.scrape(server_url)
 
     if final_target:
       print_step("🚀 Launching mpv player...")

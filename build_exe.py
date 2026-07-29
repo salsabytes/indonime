@@ -27,7 +27,7 @@ PYINSTALLER_ARGS = [
   "--hidden-import", "indonime.plugins.anoboy",
   "--hidden-import", "indonime.ext.pdrain",
   "--hidden-import", "indonime.ext.megaNZ",
-  "main.py"
+  "indonime/__main__.py"
 ]
 
 if __name__ == "__main__":
