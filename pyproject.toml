@@ -1,3 +1,20 @@
 [build-system]
 requires = ["setuptools", "wheel", "pybind11"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "indonime"
+version = "1.0.0"
+description = "Subtitle Indonesia Anime Searcher - TUI application"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "InquirerPy",
+    "rich",
+]
+
+[project.urls]
+Source = "https://github.com/salsabytes/indonime"

@@ -15,7 +15,7 @@ from rich.progress import (
 
 console = Console()
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parent.parent  # project root (indonime/)
 MPV_DIR = BASE / "mpv"
 
 

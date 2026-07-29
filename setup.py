@@ -1,8 +1,8 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
   name='indonime',
-  packages=['indonime', 'ext', 'plugins'],
+  packages=find_packages(include=['indonime', 'indonime.*']),
   install_requires=[
     'requests',
     'beautifulsoup4',

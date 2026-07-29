@@ -56,8 +56,8 @@ def _find_mpv():
         return Path(in_path)
 
     console.print("[yellow]⚠ mpv not found. Installing automatically...[/yellow]")
-    import setup_mpv
-    setup_mpv.main()
+    from ._mpv_install import main as install_mpv
+    install_mpv()
 
     if path_mpv.exists():
         return path_mpv

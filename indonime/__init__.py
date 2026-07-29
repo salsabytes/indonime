@@ -13,10 +13,10 @@ from .ui import (
     make_progress_bar, styled_status, make_style, Palette,
 )
 
-import plugins
+from . import plugins
 import requests
 from InquirerPy import inquirer
-from ext import pdrain, megaNZ
+from .ext import pdrain, megaNZ
 
 _SESSION = requests.Session()
 
@@ -164,7 +164,7 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_
         ).execute()
 
         if selected == 'back' or selected is None:
-            from plugins._base import cache_clear
+            from .plugins._base import cache_clear
             cache_clear()
             return 'back'
         idx = selected
@@ -216,7 +216,7 @@ def _tui_loop():
         print_banner()
 
         if p_name != _last_plugin_name:
-            _plugin = importlib.import_module(f'plugins.{p_name}')
+            _plugin = importlib.import_module(f'indonime.plugins.{p_name}')
             _last_plugin_name = p_name
 
         is_switching = False
@@ -299,7 +299,7 @@ def _search_mode(query, provider='otakudesu'):
     print_banner()
 
     try:
-        plugin = importlib.import_module(f'plugins.{provider}')
+        plugin = importlib.import_module(f'indonime.plugins.{provider}')
     except Exception as e:
         print_error(f"Plugin error: {e}")
         input('[Press Enter]')
