@@ -213,8 +213,9 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
                             break
         except Exception as e:
             console.print(f"[red]✘ Mega Stream Error: {e}[/red]")
-        finally:
-            ready.set()  # always unblock caller even on error/early stop
+            return  # don't signal ready — caller will timeout
+
+        ready.set()  # download completed normally
 
     dl_thread = threading.Thread(target=_download, daemon=True)
     dl_thread.start()

@@ -52,17 +52,15 @@ def _play_episode(episode_url, plugin, custom_style):
     final_target = None
     is_temp = False
 
-    # ── Continuous progress bar: 0% → 100% until mpv is ready ──
+    # ── Indeterminate pulse bar while resolving ──
     if 'mega' in last_selected_server_name.lower():
         final_mega_url = None
         with make_progress_bar() as progress:
             task = progress.add_task(
                 f"[{Palette.primary}]🔓 Resolving Mega link...",
-                total=100,
+                total=None,
             )
 
-            # Phase 1: resolve HTTP redirect (show 0-10%)
-            progress.update(task, completed=1)
             try:
                 resp = _SESSION.get(server_url, allow_redirects=True, timeout=15)
                 curr = resp.url
@@ -83,55 +81,31 @@ def _play_episode(episode_url, plugin, custom_style):
             if "#!" in final_mega_url:
                 final_mega_url = final_mega_url.replace("#!", "file/").replace("!", "#", 1)
 
-            progress.update(task, completed=10,
+            progress.update(task,
                 description=f"[{Palette.highlight}]📥 Buffering stream...")
 
-            # Phase 2: start streaming, buffer until ready
+            # ponytail: sequential streaming (resolve_mega_file_stream) over parallel Range requests.
+            # parallel approach fails on some MEGA CDNs that don't support Range or silently drop
+            # connections. Streaming is one GET, no Range, more compatible.
             try:
                 f_id = final_mega_url.split("file/")[1].split("#")[0]
-                stream = megaNZ.resolve_mega_file_parallel(final_mega_url, f_id, console)
+                stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id, console)
                 if stream is None:
                     return False
-                path, ready, stop, dl_thread, prog_info = stream
+                path, ready, stop, dl_thread = stream
 
-                progress.update(task, completed=15)
-
-                # Phase 3: track buffer fill level from 15% to 99%
-                # When bt=0: slowly climb 15-18% (waiting for first chunk measure)
-                # When bt>0: climb 18-99% based on actual buffer progress
-                _last_done = -1
                 _stall_t0 = time.time()
-                # ponytail: 20s stall timeout, beats hanging forever
                 while not ready.is_set():
-                    done = prog_info[0]
-                    bt = prog_info[2]
-
-                    if done == _last_done and time.time() - _stall_t0 > 20:
-                        print_warning("Buffering stalled (>20s no progress). Check connection or retry.")
+                    if time.time() - _stall_t0 > 60:
+                        print_warning("Buffering timed out (>60s). Check connection or retry.")
                         return False
-                    if done != _last_done:
-                        _last_done = done
-                        _stall_t0 = time.time()
-
-                    if bt > 0:
-                        # Buffer target known — real buffer progress
-                        pct = 10 + (done / bt * 85)
-                    else:
-                        # Buffer target not yet calculated (first ~8MB)
-                        # Climb from 15% to ~18% during initial chunk
-                        pct = 10 + 5 + min(done / max(1, 8 * 1024 * 1024) * 3, 3)
-
-                    progress.update(task, completed=min(pct, 99))
                     time.sleep(0.15)
-
-                progress.update(task, completed=100)
-
             except Exception as e:
                 print_error(f"Gagal Streaming: {e}")
                 time.sleep(3)
                 return False
 
-        # Progress bar done -> launch mpv
+        # Buffering complete -> launch mpv
         print_step("🚀 Launching mpv player...")
         player.play_with_mpv(path, is_temp_file=True, cleanup=False)
         stop.set()
