@@ -7,7 +7,7 @@ setup(
     'beautifulsoup4',
     'InquirerPy',
     'rich',
-    'cryptography',
+    'cryptography>=49.0.0',
   ],
   entry_points={
   'console_scripts': ['indonime=indonime:main'],
