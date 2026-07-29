@@ -139,20 +139,25 @@ def print_separator():
 
 
 # ── Episode table ─────────────────────────
-_LAST_TABLE_EPS = None
+_LAST_TABLE_KEY = None
 _LAST_TABLE = None
 
-def make_episode_table(episode_list) -> Table:
-  """Rich Table for episode display. Cached per list identity."""
-  global _LAST_TABLE_EPS, _LAST_TABLE
-  if _LAST_TABLE_EPS is episode_list:
+def make_episode_table(episode_list, start=0, count=25) -> Table:
+  """Rich table showing a page of episodes. Cached per (list id, start)."""
+  global _LAST_TABLE_KEY, _LAST_TABLE
+  key = (id(episode_list), start, count)
+  if _LAST_TABLE_KEY == key:
     return _LAST_TABLE
+
+  total = len(episode_list)
+  end = min(start + count, total)
+  page_info = f"  —  {start+1}–{end} of {total}" if total > count else ""
 
   table = Table(
     box=SQUARE,
     border_style=Palette.border,
     header_style=Style(color=Palette.primary, bold=True),
-    title=f"[bold]📋  Episode List  —  [dim]{len(episode_list)} eps[/dim][/bold]",
+    title=f"[bold]📋  Episodes{page_info}[/bold]",
     title_style=Palette.muted,
     padding=(0, 2),
     show_edge=True,
@@ -163,12 +168,13 @@ def make_episode_table(episode_list) -> Table:
   table.add_column("Title", style=Palette.text, ratio=1)
   table.add_column("", style=Palette.dim, width=3, justify="center")
 
-  for i, ep in enumerate(episode_list):
+  for i in range(start, end):
+    ep = episode_list[i]
     ep_num = f"EP{i+1:02d}"
     title = (ep["title"][:58] + "…") if len(ep["title"]) > 60 else ep["title"]
     table.add_row(ep_num, title, "▶")
 
-  _LAST_TABLE_EPS = episode_list
+  _LAST_TABLE_KEY = key
   _LAST_TABLE = table
   return table
 

@@ -1,6 +1,7 @@
 """search → select → play."""
 import argparse
 import importlib
+import json
 import os
 import pkgutil
 import time
@@ -20,7 +21,39 @@ from .ext import pdrain, megaNZ
 
 _SESSION = requests.Session()
 
+# ── History ─────────────────────────────────────
+_HISTORY_FILE = os.path.join(os.path.expanduser("~"), ".indonime", "history.json")
+_HISTORY = None
 
+def _load_history():
+  global _HISTORY
+  if _HISTORY is not None:
+    return _HISTORY
+  try:
+    with open(_HISTORY_FILE) as f:
+      _HISTORY = json.load(f)
+  except (FileNotFoundError, json.JSONDecodeError):
+    _HISTORY = {}
+  return _HISTORY
+
+def _save_history(anime_url, episode_url):
+  h = _load_history()
+  h[anime_url] = {"episode_url": episode_url, "updated": time.time()}
+  os.makedirs(os.path.dirname(_HISTORY_FILE), exist_ok=True)
+  with open(_HISTORY_FILE, "w") as f:
+    json.dump(h, f, indent=2)
+
+def _check_history(anime_url, episode_list):
+  h = _load_history()
+  entry = h.get(anime_url)
+  if not entry:
+    return None
+  for i, ep in enumerate(episode_list):
+    if ep["url"] == entry.get("episode_url"):
+      return i
+  return None
+
+# ── Play episode ────────────────────────────────
 def _play_episode(episode_url, plugin, custom_style, server_url=None):
   """Resolve stream and play. Returns (success, server_url)."""
   if server_url is None:
@@ -126,44 +159,96 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None):
       return False, None
 
 
-def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_banner=True):
+def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
+                 show_banner=True, anime_url=None):
   """Episode pick → play → post-play loop. Returns 'back' or 'quit'."""
   idx = 0
   _last_url = None
+  page = 0
+  page_size = 25
+  total_pages = max(1, (len(episode_list) + page_size - 1) // page_size)
+  resume_idx = _check_history(anime_url, episode_list) if anime_url else None
+  clean = True  # full redraw: clear + banner
+
   while True:
-    if show_banner:
-      print_banner()
+    if clean:
+      if show_banner:
+        print_banner()
+      clean = False
     print_header("📋 EPISODES", "🎬")
-    console.print(make_episode_table(episode_list))
+    console.print(make_episode_table(episode_list, start=page * page_size))
     print_separator()
 
-    ep_choices = [
-      {'name': f'  EP{i+1:02d}  —  {ep["title"][:50]}', 'value': i}
-      for i, ep in enumerate(episode_list)
-    ]
+    start = page * page_size
+    end = min(start + page_size, len(episode_list))
+
+    ep_choices = []
+    if page > 0:
+      ep_choices.append({'name': '  ◀  PREV PAGE', 'value': 'prev'})
+
+    # resume button if target not on current page
+    if resume_idx is not None and (resume_idx < start or resume_idx >= end):
+      ep_choices.append({
+        'name': f'  ⏺  RESUME  EP{resume_idx+1:02d}',
+        'value': resume_idx,
+      })
+
+    for i in range(start, end):
+      prefix = '  ▶' if resume_idx == i else '   '
+      ep_choices.append({
+        'name': f'{prefix} EP{i+1:02d}  —  {episode_list[i]["title"][:50]}',
+        'value': i,
+      })
+
+    if page + 1 < total_pages:
+      next_end = min(end + page_size, len(episode_list))
+      ep_choices.append({
+        'name': f'  ▶  NEXT PAGE (EP{end+1}–{next_end})',
+        'value': 'next',
+      })
+
     ep_choices.append({'name': f'  ↩  {back_label}', 'value': 'back'})
 
-    selected = inquirer.select(
+    fz = inquirer.fuzzy(
       message='▶  Select episode:',
       choices=ep_choices,
-      default=idx,
+      default=idx if start <= idx < end else 0,
       style=custom_style,
       qmark="",
-    ).execute()
+    )
+    @fz.register_kb('left')
+    def _(event):
+      event.app.exit(result='__prev__')
+    @fz.register_kb('right')
+    def _(event):
+      event.app.exit(result='__next__')
+    selected = fz.execute()
 
-    if selected == 'back' or selected is None:
+    if selected is None or selected == 'back':
       from .plugins._base import cache_clear
       cache_clear()
       return 'back'
+
+    if selected in ('prev', '__prev__'):
+      page -= 1
+      continue
+    if selected in ('next', '__next__'):
+      page += 1
+      continue
+
     idx = selected
     _last_url = None
 
     while True:
       print_header("🎬 NOW PLAYING", "▶")
-      ok, url = _play_episode(episode_list[idx]['url'], plugin, custom_style, server_url=_last_url)
+      ok, url = _play_episode(
+        episode_list[idx]['url'], plugin, custom_style, server_url=_last_url)
       if not ok:
         time.sleep(2)
+        clean = True
         break
+      if anime_url:
+        _save_history(anime_url, episode_list[idx]['url'])
       _last_url = url
 
       print_separator()
@@ -181,12 +266,14 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_
           idx += 1
           _last_url = None
           continue
+        clean = True
         break
       elif cmd == '◀  PREV':
         if idx > 0:
           idx -= 1
           _last_url = None
           continue
+        clean = True
         break
       elif cmd == '↺  REPLAY':
         continue
@@ -219,7 +306,7 @@ def _tui_loop():
       prompt = inquirer.text(
         message='🔍  Search anime:',
         qmark='',
-        instruction='[alt+p] switch provider',
+        instruction='[alt+p] switch provider  [esc] quit',
         style=custom_style,
         validate=lambda x: True if is_switching else len(x) > 0,
       )
@@ -228,6 +315,9 @@ def _tui_loop():
         nonlocal is_switching
         is_switching = True
         event.app.exit(result='/switch')
+      @prompt.register_kb('escape')
+      def _(event):
+        event.app.exit(result=None)
       result = prompt.execute()
     except KeyboardInterrupt:
       break
@@ -280,13 +370,15 @@ def _tui_loop():
 
     if _episode_nav(
       episode_list, _plugin, custom_style,
-      back_label='<< BACK TO SEARCH', show_banner=True
+      back_label='<< BACK TO SEARCH', show_banner=True,
+      anime_url=selected_url,
     ) == 'quit':
       break
 
   print_banner()
   make_footer()
   print_success("Thanks for using Indonime! ~ Sayonara ~")
+
 
 def _search_mode(query, provider='otakudesu'):
   """One-shot search → play → exit."""
@@ -335,7 +427,8 @@ def _search_mode(query, provider='otakudesu'):
 
   _episode_nav(
     episode_list, plugin, custom_style,
-    back_label='<< QUIT', show_banner=False
+    back_label='<< QUIT', show_banner=False,
+    anime_url=selected_url,
   )
 
   if player.current_mpv_process and player.current_mpv_process.poll() is None:
