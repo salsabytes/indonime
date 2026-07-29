@@ -12,6 +12,9 @@ Indonime_dist/
 Indonime_v*.zip
 out/
 
+# PyInstaller
+*.spec
+
 # C++ extension (compiled)
 *.pyd
 *.so

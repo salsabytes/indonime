@@ -1,10 +1,6 @@
 # Pure Python AES-128 CTR — T-table optimization.
-# ~4-6x faster than naive port: merges SubBytes+ShiftRows+MixColumns
-# into 4 lookup tables (4 KB). Round 10 still separate (no MixColumns).
-#
-# ponytail: T-tables are the classic AES software speed-up.
-# If even faster needed: swap for cryptography (C/OpenSSL).
-# Add when: streaming 4K video and CPU is the bottleneck.
+# ~4-6x faster than naive port.
+# ponytail: swap for cryptography (C/OpenSSL) if CPU-bound on 4K.
 
 import struct
 
@@ -33,21 +29,16 @@ def _F2(x):
 def _F3(x):
   return _F2(x) ^ x
 
-# T-tables: per-entry rotation (NOT whole-bytearray shift)
-# Each table[i] is a uint32 LE encoding MixColumns contribution of SBOX[i]
+# T-tables: each entry is a uint32 LE encoding MixColumns(SBOX[i])
 def _build_t():
   global _T0, _T1, _T2, _T3
   t0, t1, t2, t3 = [], [], [], []
   for i in range(256):
     s = _SBOX[i]
     a = _F2(s); b = s; c = s; d = _F3(s)
-    # T0: contribution to row 0 (a b c d) = (F2(s) s s F3(s))
     t0.append(a | (b << 8) | (c << 16) | (d << 24))
-    # T1: rot-right-1: (d a b c) = (F3(s) F2(s) s s)
     t1.append(d | (a << 8) | (b << 16) | (c << 24))
-    # T2: rot-right-2: (c d a b) = (s F3(s) F2(s) s)
     t2.append(c | (d << 8) | (a << 16) | (b << 24))
-    # T3: rot-right-3: (b c d a) = (s s F3(s) F2(s))
     t3.append(b | (c << 8) | (d << 16) | (a << 24))
   _T0, _T1, _T2, _T3 = t0, t1, t2, t3
 
@@ -71,28 +62,19 @@ def _expand(k, rk):
 
 
 def _aes_block(s, rk):
-  # s is list[int] (bytearray), rk is bytearray
-  # rounds 0-8 (9 rounds using T-tables)
-  # AES state is column-major: s[0..3]=col0, s[4..7]=col1, s[8..11]=col2, s[12..15]=col3
-
+  # AES state is column-major: s[0..3]=col0, s[4..7]=col1, etc.
   for r in range(9):
-    # AddRoundKey
     for i in range(16):
       s[i] ^= rk[r * 16 + i]
 
-    # T-table round: SubBytes + ShiftRows + MixColumns
-    # After SubBytes + ShiftRows, columns map as:
-    #   col0: s[0], s[5], s[10], s[15]
-    #   col1: s[4], s[9], s[14], s[3]
-    #   col2: s[8], s[13], s[2], s[7]
-    #   col3: s[12], s[1], s[6], s[11]
+    # T-table round: SubBytes+ShiftRows+MixColumns
+    # After SubBytes+ShiftRows: col0=s[0,5,10,15], col1=s[4,9,14,3], etc.
     c0 = _T0[s[0]] ^ _T1[s[5]] ^ _T2[s[10]] ^ _T3[s[15]]
     c1 = _T0[s[4]] ^ _T1[s[9]] ^ _T2[s[14]] ^ _T3[s[3]]
     c2 = _T0[s[8]] ^ _T1[s[13]] ^ _T2[s[2]] ^ _T3[s[7]]
     c3 = _T0[s[12]] ^ _T1[s[1]] ^ _T2[s[6]] ^ _T3[s[11]]
     struct.pack_into('<4I', s, 0, c0, c1, c2, c3)
 
-  # round 9: AddRoundKey, then SubBytes + ShiftRows, then round 10 key
   for i in range(16):
     s[i] ^= rk[9 * 16 + i]
   for i in range(16):
@@ -101,7 +83,6 @@ def _aes_block(s, rk):
   t = s[1]; s[1] = s[5]; s[5] = s[9]; s[9] = s[13]; s[13] = t
   t = s[2]; s[2] = s[10]; s[10] = t; t = s[6]; s[6] = s[14]; s[14] = t
   t = s[15]; s[15] = s[11]; s[11] = s[7]; s[7] = s[3]; s[3] = t
-  # round 10 AddRoundKey
   for i in range(16):
     s[i] ^= rk[10 * 16 + i]
 

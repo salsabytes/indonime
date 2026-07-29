@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-platform mpv installer for Indonime."""
+"""Cross-platform mpv installer."""
 import os
 import sys
 import shutil
@@ -9,13 +9,16 @@ import urllib.request
 from pathlib import Path
 from rich.console import Console
 from rich.progress import (
-    Progress, BarColumn, DownloadColumn,
-    TransferSpeedColumn, TimeRemainingColumn,
+  Progress, BarColumn, DownloadColumn,
+  TransferSpeedColumn, TimeRemainingColumn,
 )
 
 console = Console()
 
-BASE = Path(__file__).resolve().parent.parent  # project root (indonime/)
+if sys.platform == "win32":
+  BASE = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local')) / "Indonime"
+else:
+  BASE = Path.home() / ".local" / "share" / "indonime"
 MPV_DIR = BASE / "mpv"
 
 
@@ -25,9 +28,9 @@ def _download(url, dest, desc="Downloading"):
     resp = urllib.request.urlopen(url)
     total = int(resp.headers.get("content-length", 0))
     with Progress(
-        "[progress.description]{task.description}", BarColumn(),
-        DownloadColumn(), TransferSpeedColumn(), TimeRemainingColumn(),
-        console=console,
+      "[progress.description]{task.description}", BarColumn(),
+      DownloadColumn(), TransferSpeedColumn(), TimeRemainingColumn(),
+      console=console,
     ) as p:
       task = p.add_task(f"[cyan]{desc}", total=total)
       with open(dest, "wb") as f:
@@ -42,6 +45,7 @@ def _download(url, dest, desc="Downloading"):
 
 def _install_windows():
   """Download mpv.7z, extract via 7zr.exe (standalone)."""
+  BASE.mkdir(parents=True, exist_ok=True)
   mpv_url = "https://github.com/salsa-ram/indonime/releases/download/v1.0.0-mpv/mpv.7z"
   mpv_7z = BASE / "mpv.7z"
 
@@ -52,8 +56,8 @@ def _install_windows():
   MPV_DIR.mkdir(exist_ok=True)
 
   for exe, args in [
-      (r"C:\Program Files\7-Zip\7z.exe", [r"C:\Program Files\7-Zip\7z.exe", "x", str(mpv_7z), f"-o{MPV_DIR}", "-y"]),
-      (r"C:\Program Files\WinRAR\WinRAR.exe", [r"C:\Program Files\WinRAR\WinRAR.exe", "x", str(mpv_7z), f"{MPV_DIR}\\"]),
+    (r"C:\Program Files\7-Zip\7z.exe", [r"C:\Program Files\7-Zip\7z.exe", "x", str(mpv_7z), f"-o{MPV_DIR}", "-y"]),
+    (r"C:\Program Files\WinRAR\WinRAR.exe", [r"C:\Program Files\WinRAR\WinRAR.exe", "x", str(mpv_7z), f"{MPV_DIR}\\"]),
   ]:
     if os.path.exists(exe):
       subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -64,7 +68,7 @@ def _install_windows():
     if not _download("https://www.7-zip.org/a/7zr.exe", BASE / "7zr.exe"):
       return False
     subprocess.run([str(BASE / "7zr.exe"), "x", str(mpv_7z), f"-o{MPV_DIR}", "-y"],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     (BASE / "7zr.exe").unlink(missing_ok=True)  # ponytail: BCJ2 archive, needs 7z
 
   mpv_7z.unlink(missing_ok=True)
@@ -87,10 +91,10 @@ def _install_macos():
 
 def _install_linux():
   for pm, cmd in [
-      ("apt", ["apt", "install", "-y", "mpv"]),
-      ("pacman", ["pacman", "-S", "--noconfirm", "mpv"]),
-      ("dnf", ["dnf", "install", "-y", "mpv"]),
-      ("zypper", ["zypper", "install", "-y", "mpv"]),
+    ("apt", ["apt", "install", "-y", "mpv"]),
+    ("pacman", ["pacman", "-S", "--noconfirm", "mpv"]),
+    ("dnf", ["dnf", "install", "-y", "mpv"]),
+    ("zypper", ["zypper", "install", "-y", "mpv"]),
   ]:
     if shutil.which(pm):
       console.print(f"[cyan]Installing mpv via {pm}...[/cyan]")
@@ -114,8 +118,8 @@ def main():
   console.print(f"[dim]OS: {system}[/dim]")
 
   ok = {
-      "Windows": _install_windows,
-      "Darwin": _install_macos,
+    "Windows": _install_windows,
+    "Darwin": _install_macos,
   }.get(system, _install_linux)()
 
   if not ok:
