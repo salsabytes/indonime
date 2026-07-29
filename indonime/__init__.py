@@ -10,7 +10,7 @@ from . import player
 from .ui import (
   console, print_banner, print_header, print_step,
   print_success, print_error, print_warning, print_info, print_separator,
-  make_episode_table, make_postplay_actions, make_footer,
+  make_episode_table, make_episode_page, make_postplay_actions, make_footer,
   make_progress_bar, styled_status, make_style, Palette,
 )
 
@@ -175,9 +175,7 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
       if show_banner:
         print_banner()
       clean = False
-    print_header("📋 EPISODES", "🎬")
-    console.print(make_episode_table(episode_list, start=page * page_size))
-    print_separator()
+    console.print(make_episode_page(episode_list, start=page * page_size))
 
     start = page * page_size
     end = min(start + page_size, len(episode_list))

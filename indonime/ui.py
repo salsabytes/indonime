@@ -13,6 +13,8 @@ from rich.progress import (
 from rich.columns import Columns
 from rich.align import Align
 from rich.box import ROUNDED, HEAVY_HEAD, MINIMAL, SQUARE
+from rich.padding import Padding
+from rich.console import Group
 from rich.style import Style
 
 console = Console()
@@ -177,6 +179,19 @@ def make_episode_table(episode_list, start=0, count=25) -> Table:
   _LAST_TABLE_KEY = key
   _LAST_TABLE = table
   return table
+
+
+def make_episode_page(episode_list, start=0, count=25) -> Group:
+  """Header + table + separator as one renderable (single terminal write)."""
+  header = Padding(Columns([
+    Text(" 🎬 ", style=Palette.primary),
+    Text("📋 EPISODES", style=Style(color=Palette.primary, bold=True)),
+  ], padding=(0, 1)), pad=(1, 0, 0, 0))
+  return Group(
+    header,
+    make_episode_table(episode_list, start, count),
+    Rule(style=Palette.border),
+  )
 
 
 # ── Post-play menu ────────────────────────
