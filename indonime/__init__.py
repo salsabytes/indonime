@@ -169,31 +169,37 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK', show_
             return 'back'
         idx = selected
 
-        print_header("🎬 NOW PLAYING", "▶")
-        if not _play_episode(episode_list[idx]['url'], plugin, custom_style):
-            time.sleep(2)
-            return 'back'
+        # ponytail: inner loop keeps QUALITY/REPLAY on same episode instead of reopening episode list
+        while True:
+            print_header("🎬 NOW PLAYING", "▶")
+            if not _play_episode(episode_list[idx]['url'], plugin, custom_style):
+                time.sleep(2)
+                break
 
-        print_separator()
+            print_separator()
 
-        post_choices = make_postplay_actions(idx, len(episode_list))
-        cmd = inquirer.select(
-            message="🎮  Command:",
-            choices=post_choices,
-            style=custom_style,
-            qmark="",
-        ).execute()
+            post_choices = make_postplay_actions(idx, len(episode_list))
+            cmd = inquirer.select(
+                message="🎮  Command:",
+                choices=post_choices,
+                style=custom_style,
+                qmark="",
+            ).execute()
 
-        if cmd == '▶  NEXT':
-            if idx + 1 < len(episode_list):
-                idx += 1
-        elif cmd == '◀  PREV':
-            if idx > 0:
-                idx -= 1
-        elif cmd in ('↺  REPLAY', '⚙  QUALITY'):
-            continue
-        else:
-            return 'quit'
+            if cmd == '▶  NEXT':
+                if idx + 1 < len(episode_list):
+                    idx += 1
+                    continue
+                break
+            elif cmd == '◀  PREV':
+                if idx > 0:
+                    idx -= 1
+                    continue
+                break
+            elif cmd in ('↺  REPLAY', '⚙  QUALITY'):
+                continue  # replay same episode / choose different quality
+            else:
+                return 'quit'
 
 
 def _tui_loop():
@@ -286,7 +292,6 @@ def _tui_loop():
     print_banner()
     make_footer()
     print_success("Thanks for using Indonime! ~ Sayonara ~")
-
 
 def _search_mode(query, provider='otakudesu'):
     """One-shot search → play → exit."""
