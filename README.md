@@ -21,7 +21,7 @@
 
   <br>
 
-  <img src="https://github.com/user-attachments/assets/7057b06a-859e-47cc-a555-50d1cfd3996f" alt="Indonime Demo" width="80%" style="border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);"/>
+  <video src="https://github.com/user-attachments/assets/7057b06a-859e-47cc-a555-50d1cfd3996f" controls autoplay loop muted style="max-width: 100%; border-radius: 10px;"></video>
 
   <br><br>
 
