@@ -756,13 +756,9 @@ def main():
   )
   parser.add_argument(
     'mode', nargs='?', default='tui',
-    help='Mode: tui (interactive, default) or search <query>'
+    help='Mode: tui (interactive, default), search <query>, or download <query>'
   )
   parser.add_argument('query', nargs='*', help='Search query')
-  parser.add_argument(
-    '-d', '--download', action='store_true',
-    help='Download instead of play (use with search mode)'
-  )
   parser.add_argument(
     '-p', '--provider', default='otakudesu',
     choices=['otakudesu', 'anoboy'],
@@ -771,9 +767,8 @@ def main():
   args = parser.parse_args()
 
   if args.mode == 'search' and args.query:
-    if args.download:
-      _download_mode(' '.join(args.query), args.provider)
-    else:
-      _search_mode(' '.join(args.query), args.provider)
+    _search_mode(' '.join(args.query), args.provider)
+  elif args.mode == 'download' and args.query:
+    _download_mode(' '.join(args.query), args.provider)
   else:
     _tui_loop()
