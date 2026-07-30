@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """MEGA stream decrypt — reused cipher + prefetch thread."""
 import os
+import random
 import requests
 import base64
 import threading
@@ -8,6 +9,13 @@ import queue
 import tempfile
 
 _SESSION = requests.Session()
+_SESSION.headers.update({
+  'User-Agent': (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/120.0.0.0 Safari/537.36'
+  ),
+})
 
 _decryptor = None
 try:
@@ -44,12 +52,23 @@ def _parse_mega_url(url):
 def _fetch_file_info(file_id):
   """MEGA API → (dl_link, file_size)."""
   try:
-    res = _SESSION.post("https://g.api.mega.co.nz/cs",
-              json=[{"a": "g", "g": 1, "p": file_id}]).json()
+    seq = random.randint(0, 0xFFFFFFFF)
+    res = _SESSION.post(
+      f"https://g.api.mega.co.nz/cs?id={seq}",
+      json=[{"a": "g", "g": 1, "p": file_id}],
+      timeout=15,
+    ).json()
     if isinstance(res[0], int):
+      err = res[0]
+      err_map = {-1: "internal", -2: "invalid args", -3: "retry",
+                  -4: "rate-limited", -5: "access denied", -6: "not found",
+                  -7: "not accessible", -8: "over quota", -9: "bad key",
+                  -11: "logged out", -13: "expired", -14: "blocked"}
+      print(f"[mega] API error {err} ({err_map.get(err, 'unknown')})", file=__import__('sys').stderr)
       return None
     return res[0]['g'], res[0]['s']
-  except Exception:
+  except Exception as e:
+    print(f"[mega] _fetch_file_info exception: {e}", file=__import__('sys').stderr)
     return None
 
 

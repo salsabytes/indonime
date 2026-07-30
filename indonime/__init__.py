@@ -20,6 +20,13 @@ from InquirerPy import inquirer
 from .ext import pdrain, megaNZ
 
 _SESSION = requests.Session()
+_SESSION.headers.update({
+  'User-Agent': (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/120.0.0.0 Safari/537.36'
+  ),
+})
 
 # ── History ─────────────────────────────────────
 _HISTORY_FILE = os.path.join(os.path.expanduser("~"), ".indonime", "history.json")
@@ -97,8 +104,8 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None):
         try:
           resp = _SESSION.get(server_url, allow_redirects=True, timeout=15)
           curr = resp.url
-          if "mega.nz" in curr and ("#" in curr or "#!" in curr):
-            final_mega_url = curr
+          if ("mega.nz" in curr or "mega.co.nz" in curr) and ("#" in curr or "#!" in curr):
+            final_mega_url = curr.replace("mega.co.nz", "mega.nz")
           else:
             print_error("Redirect tidak mengarah ke Mega.")
             server_url = None
