@@ -3,7 +3,6 @@ from InquirerPy.utils import get_style
 from rich.console import Console
 from rich.text import Text
 from rich.panel import Panel
-from rich.table import Table
 import pyfiglet
 from rich.rule import Rule
 from rich.progress import (
@@ -12,7 +11,7 @@ from rich.progress import (
 )
 from rich.columns import Columns
 from rich.align import Align
-from rich.box import ROUNDED, HEAVY_HEAD, MINIMAL, SQUARE
+from rich.box import ROUNDED
 from rich.padding import Padding
 from rich.console import Group
 from rich.style import Style
@@ -36,7 +35,7 @@ class Palette:
 BANNER_FONT = "big"  # ponytail: swap font string to change style
 
 def _pyfiglet_gradient(text: str, font: str = BANNER_FONT) -> Text:
-  """Pyfiglet + Rich gradient."""
+  """Pyfiglet + Rich gradient (3-color cyan→teal→purple)."""
   colors = ["#00d4ff", "#2dd4bf", "#a855f7"]
   art = pyfiglet.figlet_format(text, font=font)
   lines = art.splitlines()
@@ -52,24 +51,16 @@ def _pyfiglet_gradient(text: str, font: str = BANNER_FONT) -> Text:
       else:
         t = ci / max(n - 1, 1)
         seg = t * (len(colors) - 1)
-        seg_i, seg_t = int(seg), seg - int(seg)
-        c1 = colors[min(seg_i, len(colors) - 1)]
-        c2 = colors[min(seg_i + 1, len(colors) - 1)]
-        result.append(ch, style=_lerp_color(c1, c2, seg_t))
+        seg_i = min(int(seg), len(colors) - 2)
+        c1, c2 = colors[seg_i], colors[seg_i + 1]
+        ft = seg - seg_i
+        r = int(int(c1[1:3], 16) + (int(c2[1:3], 16) - int(c1[1:3], 16)) * ft)
+        g = int(int(c1[3:5], 16) + (int(c2[3:5], 16) - int(c1[3:5], 16)) * ft)
+        b = int(int(c1[5:7], 16) + (int(c2[5:7], 16) - int(c1[5:7], 16)) * ft)
+        result.append(ch, style=f"#{r:02x}{g:02x}{b:02x}")
     if li < len(lines) - 1:
       result.append("\n")
   return result
-
-
-def _lerp_color(a: str, b: str, t: float) -> str:
-  """Linear interpolate between two hex colors."""
-  ah, bh = int(a[1:], 16), int(b[1:], 16)
-  ar, ag, ab = (ah >> 16) & 0xFF, (ah >> 8) & 0xFF, ah & 0xFF
-  br, bg, bb = (bh >> 16) & 0xFF, (bh >> 8) & 0xFF, bh & 0xFF
-  r = int(ar + (br - ar) * t)
-  g = int(ag + (bg - ag) * t)
-  b = int(ab + (bb - ab) * t)
-  return f"#{r:02x}{g:02x}{b:02x}"
 
 
 _BANNER_PANEL = None
@@ -108,28 +99,30 @@ def styled_status(message: str) -> str:
   return f"[bold {Palette.primary}]{message}[/bold {Palette.primary}]"
 
 
+def _print_msg(icon: str, color: str, msg: str, dim=False):
+  if dim:
+    console.print(f"  [bold {color}]{icon}[/bold {color}]  [dim]{msg}[/dim]")
+  else:
+    console.print(f"  [bold {color}]{icon}[/bold {color}]  {msg}")
+
+
 def print_step(msg: str):
-  """Progress step."""
-  console.print(f"  [bold {Palette.primary}]➜[/bold {Palette.primary}]  [dim]{msg}[/dim]")
+  _print_msg("➜", Palette.primary, msg, dim=True)
 
 
 def print_success(msg: str):
-  """Green success."""
-  console.print(f"  [bold {Palette.success}]✓[/bold {Palette.success}]  {msg}")
+  _print_msg("✓", Palette.success, msg)
 
 
 def print_error(msg: str):
-  """Red error."""
-  console.print(f"  [bold {Palette.error}]✘[/bold {Palette.error}]  {msg}")
+  _print_msg("✘", Palette.error, msg)
 
 
 def print_warning(msg: str):
-  """Yellow warning."""
-  console.print(f"  [bold {Palette.warning}]⚠[/bold {Palette.warning}]  {msg}")
+  _print_msg("⚠", Palette.warning, msg)
 
 
 def print_info(msg: str):
-  """Info in muted style."""
   console.print(f"  [bold {Palette.muted}]ℹ[/bold {Palette.muted}]  [italic]{msg}[/italic]")
 
 
@@ -140,47 +133,7 @@ def print_separator():
   console.print()
 
 
-# ── Episode table ─────────────────────────
-_LAST_TABLE_KEY = None
-_LAST_TABLE = None
-
-def make_episode_table(episode_list, start=0, count=25) -> Table:
-  """Rich table showing a page of episodes. Cached per (list id, start)."""
-  global _LAST_TABLE_KEY, _LAST_TABLE
-  key = (id(episode_list), start, count)
-  if _LAST_TABLE_KEY == key:
-    return _LAST_TABLE
-
-  total = len(episode_list)
-  end = min(start + count, total)
-  page_info = f"  —  {start+1}–{end} of {total}" if total > count else ""
-
-  table = Table(
-    box=SQUARE,
-    border_style=Palette.border,
-    header_style=Style(color=Palette.primary, bold=True),
-    title=f"[bold]📋  Episodes{page_info}[/bold]",
-    title_style=Palette.muted,
-    padding=(0, 2),
-    show_edge=True,
-    show_lines=True,
-    expand=True,
-  )
-  table.add_column(" EP", style=Palette.secondary, width=7, no_wrap=True, justify="center")
-  table.add_column("Title", style=Palette.text, ratio=1)
-  table.add_column("", style=Palette.dim, width=3, justify="center")
-
-  for i in range(start, end):
-    ep = episode_list[i]
-    ep_num = f"EP{i+1:02d}"
-    title = (ep["title"][:58] + "…") if len(ep["title"]) > 60 else ep["title"]
-    table.add_row(ep_num, title, "▶")
-
-  _LAST_TABLE_KEY = key
-  _LAST_TABLE = table
-  return table
-
-
+# ── Episode page ──────────────────────────
 def make_episode_page(episode_list, start=0, count=25) -> Group:
   """Header + separator (table removed per user request)."""
   header = Padding(Columns([

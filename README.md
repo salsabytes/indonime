@@ -13,8 +13,7 @@
   <p>
     <a href="#-kenapa-indonime">Kenapa?</a> •
     <a href="#-cara-pakai">Cara Pakai</a> •
-    <a href="#%EF%B8%8F-instalasi-dari-source">Instalasi</a> •
-    <a href="#-contoh">Demo</a> •
+    <a href="#-dari-source-contributor">Instalasi</a> •
     <a href="#-fitur">Fitur</a> •
     <a href="#-provider">Provider</a> •
     <a href="#-struktur-project">Struktur</a>
@@ -22,17 +21,17 @@
 
   <br>
 
-  <!--<img src="https://github.com/user-attachments/assets/7057b06a-859e-47cc-a555-50d1cfd3996f" alt="Indonime Demo" width="80%" style="border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);"/>
+  <img src="https://github.com/user-attachments/assets/7057b06a-859e-47cc-a555-50d1cfd3996f" alt="Indonime Demo" width="80%" style="border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);"/>
 
-  <br><br>-->
+  <br><br>
 
   <a href="https://github.com/salsabytes/indonime/releases/latest">
     <img src="https://img.shields.io/badge/Download%20.exe-blue?style=for-the-badge&logo=windows&logoColor=white" alt="Download">
   </a>
   &nbsp;
-  <!-- <a href="#-cara-pakai">
+  <a href="#-cara-pakai">
     <img src="https://img.shields.io/badge/Pip%20Install-black?style=for-the-badge&logo=python&logoColor=white" alt="Pip Install">
-  </a> -->
+  </a>
 </div>
 
 <br>
@@ -154,14 +153,19 @@ indonime/
 │   ├── __init__.py          # Entry point & CLI routing
 │   ├── __main__.py          # python -m indonime
 │   ├── ui.py                # TUI — InquirerPy + Rich
-│   └── player.py            # Streaming via mpv
-├── 📁 ext/                   # Utility modules
-│   ├── megaNZ.py            # Mega download + AES decrypt
-│   ├── pdrain.py            # PixelDrain downloader
-│   └── videodec.py          # Video decryption utils
-├── 📁 plugins/               # Provider scrapers
-├── 📁 scripts/               # Helper scripts
-└── 📄 main.py                # CLI entry point
+│   ├── player.py            # Streaming via mpv
+│   ├── 📁 ext/               # Utility modules
+│   │   ├── megaNZ.py        # Mega download + AES decrypt
+│   │   ├── pdrain.py        # PixelDrain downloader
+│   │   └── videodec.py      # Video decryption utils
+│   └── 📁 plugins/           # Provider scrapers
+│       ├── anoboy.py        # Anoboy provider
+│       ├── otakudesu.py     # Otakudesu provider
+│       └── _base.py         # Shared helpers
+├── 📄 main.py                # Dev entry point (python main.py)
+├── 📄 build_exe.py           # PyInstaller build script
+├── 📄 pyproject.toml         # Package config
+└── 📄 README.md              # Ini dia 😄
 ```
 
 <br>

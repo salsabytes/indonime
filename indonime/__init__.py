@@ -18,15 +18,10 @@ from . import plugins
 import requests
 from InquirerPy import inquirer
 from .ext import pdrain, megaNZ
+from .plugins._base import HEADERS
 
 _SESSION = requests.Session()
-_SESSION.headers.update({
-  'User-Agent': (
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-    'AppleWebKit/537.36 (KHTML, like Gecko) '
-    'Chrome/120.0.0.0 Safari/537.36'
-  ),
-})
+_SESSION.headers.update(HEADERS)
 
 # ── History ─────────────────────────────────────
 _HISTORY_FILE = os.path.join(os.path.expanduser("~"), ".indonime", "history.json")

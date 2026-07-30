@@ -90,19 +90,13 @@ def _install_macos():
 
 
 def _install_linux():
-  for pm, cmd in [
-    ("apt", ["apt", "install", "-y", "mpv"]),
-    ("pacman", ["pacman", "-S", "--noconfirm", "mpv"]),
-    ("dnf", ["dnf", "install", "-y", "mpv"]),
-    ("zypper", ["zypper", "install", "-y", "mpv"]),
-  ]:
-    if shutil.which(pm):
-      console.print(f"[cyan]Installing mpv via {pm}...[/cyan]")
-      r = subprocess.run(cmd, capture_output=True, text=True)
-      if r.returncode == 0:
-        console.print(f"[green]✓ mpv installed via {pm}[/green]")
-        return True
-      console.print(f"[yellow]⚠ {pm} failed[/yellow]")
+  if shutil.which("apt"):
+    console.print("[cyan]Installing mpv via apt...[/cyan]")
+    r = subprocess.run(["apt", "install", "-y", "mpv"], capture_output=True, text=True)
+    if r.returncode == 0:
+      console.print("[green]✓ mpv installed via apt[/green]")
+      return True
+    console.print(f"[yellow]⚠ apt failed: {r.stderr.strip()}[/yellow]")
   console.print("[yellow]Install manually: apt install mpv[/yellow]")
   return False
 

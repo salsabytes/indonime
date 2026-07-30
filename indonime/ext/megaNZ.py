@@ -17,17 +17,9 @@ _SESSION.headers.update({
   ),
 })
 
-_decryptor = None
-try:
-  from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-  from cryptography.hazmat.backends import default_backend
-  _decryptor = 'cryptography'
-except ImportError:
-  try:
-    from . import videodec
-    _decryptor = 'videodec'
-  except ImportError:
-    pass
+# ── AES via cryptography (hard dep) ──────────
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
 _TEMP_PATH = os.path.join(tempfile.gettempdir(), "indonime_stream_cache.mp4")
 
 
@@ -60,11 +52,10 @@ def _fetch_file_info(file_id):
     ).json()
     if isinstance(res[0], int):
       err = res[0]
-      err_map = {-1: "internal", -2: "invalid args", -3: "retry",
-                  -4: "rate-limited", -5: "access denied", -6: "not found",
-                  -7: "not accessible", -8: "over quota", -9: "bad key",
-                  -11: "logged out", -13: "expired", -14: "blocked"}
-      print(f"[mega] API error {err} ({err_map.get(err, 'unknown')})", file=__import__('sys').stderr)
+      err_names = {-1:"internal",-2:"invalid",-3:"retry",-4:"rate-limited",
+                   -5:"denied",-6:"not found",-7:"inaccessible",-8:"quota",
+                   -9:"bad key",-11:"logged out",-13:"expired",-14:"blocked"}
+      print(f"[mega] API err {err} ({err_names.get(err,'?')})", file=__import__('sys').stderr)
       return None
     return res[0]['g'], res[0]['s']
   except Exception as e:
@@ -86,10 +77,6 @@ def _run_prefetch(resp, q, stop):
 
 def resolve_mega_file_stream(url, file_id, console, early_mb=2):
   """Download+decrypt MEGA file in background; return early once early_mb MB ready."""
-  if not _decryptor:
-    console.print("[red]✘ Tidak ada AES backend. Install: pip install cryptography[/red]")
-    return None
-
   parsed = _parse_mega_url(url)
   if parsed is None:
     console.print("[red]✘ Gagal parse key MEGA[/red]")
@@ -121,44 +108,26 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
 
       downloaded = 0
       _first_dec = None
+      c = Cipher(algorithms.AES(k), modes.CTR(iv), backend=default_backend())
+      d = c.decryptor()
       with open(_TEMP_PATH, "wb") as f:
-        if _decryptor == 'cryptography':
-          c = Cipher(algorithms.AES(k), modes.CTR(iv), backend=default_backend())
-          d = c.decryptor()
-          while True:
-            chunk = chunk_queue.get()
-            if chunk is None:
-              break
-            if isinstance(chunk, Exception):
-              raise chunk
-            dec = d.update(chunk)
-            f.write(dec)
-            if _first_dec is None:
-              _first_dec = dec[:8]
-              _fmt[0] = 'mp4' if b'\x66\x74\x79\x70' in _first_dec else 'mkv'
-            downloaded += len(chunk)
-            if not ready.is_set() and downloaded >= early_bytes and _fmt[0] != 'mp4':
-              ready.set()  # MKV can stream early
-            if stop.is_set():
-              break
-          d.finalize()
-        else:
-          while True:
-            chunk = chunk_queue.get()
-            if chunk is None:
-              break
-            if isinstance(chunk, Exception):
-              raise chunk
-            dec = videodec.decode(chunk, k, iv, downloaded)
-            f.write(dec)
-            if _first_dec is None:
-              _first_dec = dec[:8]
-              _fmt[0] = 'mp4' if b'\x66\x74\x79\x70' in _first_dec else 'mkv'
-            downloaded += len(chunk)
-            if not ready.is_set() and downloaded >= early_bytes and _fmt[0] != 'mp4':
-              ready.set()  # MKV can stream early
-            if stop.is_set():
-              break
+        while True:
+          chunk = chunk_queue.get()
+          if chunk is None:
+            break
+          if isinstance(chunk, Exception):
+            raise chunk
+          dec = d.update(chunk)
+          f.write(dec)
+          if _first_dec is None:
+            _first_dec = dec[:8]
+            _fmt[0] = 'mp4' if b'\x66\x74\x79\x70' in _first_dec else 'mkv'
+          downloaded += len(chunk)
+          if not ready.is_set() and downloaded >= early_bytes and _fmt[0] != 'mp4':
+            ready.set()  # MKV can stream early
+          if stop.is_set():
+            break
+        d.finalize()
     except Exception as e:
       console.print(f"[red]✘ Mega Stream Error: {e}[/red]")
       ready.set()
