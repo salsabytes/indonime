@@ -21,9 +21,7 @@
 
   <br>
 
-  <div style="max-width: 640px; margin: 0 auto;">
-    <video src="https://github.com/user-attachments/assets/7057b06a-859e-47cc-a555-50d1cfd3996f" controls autoplay loop muted style="width: 100%; border-radius: 10px;"></video>
-  </div>
+  <img src="https://github.com/user-attachments/assets/e86c9815-cc39-47a4-b796-b9ab048c7410" alt="Indonime TUI Demo" width="75%" style="border-radius: 10px;"/>
 
   <br><br>
 
