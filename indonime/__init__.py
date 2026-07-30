@@ -14,6 +14,7 @@ from .ui import (
   make_episode_page, make_postplay_actions, make_footer,
   make_progress_bar, styled_status, make_style, Palette,
 )
+
 from . import plugins
 import requests
 from InquirerPy import inquirer
@@ -57,7 +58,7 @@ def _check_history(anime_url, episode_list):
 
 # ── Play episode ────────────────────────────────
 def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_title=None):
-  # Resolve stream and play. Returns (success, server_url).
+  """Resolve stream and play. Returns (success, server_url)."""
   while True:
     if server_url is None:
       with console.status(styled_status("🔍 Resolving stream...")):
@@ -82,7 +83,6 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
       if not selected:
         return False, None
       last_selected_server_name, server_url = selected
-
       # After quality selection, offer Play or Download
       mode = inquirer.select(
         message=f'📥  What to do with {episode_title[:50]}',
@@ -488,8 +488,8 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
     while True:
       print_header("🎬 NOW PLAYING", "▶")
       ok, url = _play_episode(
-        episode_list[idx]['url'], plugin, custom_style,
-        server_url=_last_url, episode_title=episode_list[idx]['title'])
+        episode_list[idx]['url'], plugin, custom_style, server_url=_last_url,
+        episode_title=episode_list[idx]['title'])
       if not ok:
         time.sleep(2)
         clean = True
@@ -642,36 +642,6 @@ def _tui_loop():
   print_success("Thanks for using Indonime! ~ Sayonara ~")
 
 
-def _search_mode(query, provider='otakudesu'):
-  """One-shot search → play → exit."""
-  custom_style = make_style()
-  print_banner()
-
-  try:
-    plugin = importlib.import_module(f'indonime.plugins.{provider}')
-  except Exception as e:
-    print_error(f"Plugin error: {e}")
-    input('[Press Enter]')
-    return
-
-  hit = _search_and_select(plugin, query, custom_style)
-  if hit is None:
-    print_warning("Nothing found.")
-    input('[Press Enter]')
-    return
-
-  selected_url, episode_list = hit
-
-  _episode_nav(
-    episode_list, plugin, custom_style,
-    back_label='<< QUIT', show_banner=False,
-    anime_url=selected_url,
-  )
-
-  if player.current_mpv_process and player.current_mpv_process.poll() is None:
-    player.current_mpv_process.wait()
-
-
 def _download_mode(query, provider='otakudesu'):
   # One-shot search → download → exit.
   custom_style = make_style()
@@ -779,6 +749,36 @@ def _download_mode(query, provider='otakudesu'):
     # Download the selected episode
     _download_episode(episode_list[selected]['title'], episode_list[selected]['url'], plugin, custom_style)
     break
+
+
+def _search_mode(query, provider='otakudesu'):
+  """One-shot search → play → exit."""
+  custom_style = make_style()
+  print_banner()
+
+  try:
+    plugin = importlib.import_module(f'indonime.plugins.{provider}')
+  except Exception as e:
+    print_error(f"Plugin error: {e}")
+    input('[Press Enter]')
+    return
+
+  hit = _search_and_select(plugin, query, custom_style)
+  if hit is None:
+    print_warning("Nothing found.")
+    input('[Press Enter]')
+    return
+
+  selected_url, episode_list = hit
+
+  _episode_nav(
+    episode_list, plugin, custom_style,
+    back_label='<< QUIT', show_banner=False,
+    anime_url=selected_url,
+  )
+
+  if player.current_mpv_process and player.current_mpv_process.poll() is None:
+    player.current_mpv_process.wait()
 
 
 def main():
