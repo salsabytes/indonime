@@ -165,7 +165,7 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
   idx = 0
   _last_url = None
   page = 0
-  page_size = 25
+  page_size = 12  # ponytail: 12 cukup biar banner gak kescroll
   total_pages = max(1, (len(episode_list) + page_size - 1) // page_size)
   resume_idx = _check_history(anime_url, episode_list) if anime_url else None
   clean = True  # full redraw: clear + banner
@@ -201,7 +201,7 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
       choices=_page_choices(page),
       style=custom_style,
       qmark="",
-      cycle=False,
+      cycle=True,
     )
 
     # Patch Enter handler: intercept nav items → update choices in-place
@@ -376,6 +376,7 @@ def _tui_loop():
       message='📺  Select title:',
       choices=choices,
       style=custom_style,
+      cycle=True,
     ).execute()
 
     if selected_title == '-- ABORT --' or not selected_title:
@@ -433,6 +434,7 @@ def _search_mode(query, provider='otakudesu'):
     message='📺  Select title:',
     choices=choices,
     style=custom_style,
+    cycle=True,
   ).execute()
 
   if selected_title == '-- ABORT --' or not selected_title:
