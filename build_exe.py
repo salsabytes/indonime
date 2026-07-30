@@ -18,6 +18,7 @@ PYINSTALLER_ARGS = [
   sys.executable, "-m", "PyInstaller",
   "--onefile",
   "--console",
+  "--clean",
   "--name", "Indonime",
   # dynamic imports — PyInstaller can't auto-detect these
   "--collect-data", "pyfiglet",
