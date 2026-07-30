@@ -56,8 +56,8 @@ def _check_history(anime_url, episode_list):
   return None
 
 # ── Play episode ────────────────────────────────
-def _play_episode(episode_url, plugin, custom_style, server_url=None):
-  """Resolve stream and play. Returns (success, server_url)."""
+def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_title=None):
+  # Resolve stream and play. Returns (success, server_url).
   while True:
     if server_url is None:
       with console.status(styled_status("🔍 Resolving stream...")):
@@ -82,6 +82,21 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None):
       if not selected:
         return False, None
       last_selected_server_name, server_url = selected
+
+      # After quality selection, offer Play or Download
+      if episode_title:
+        mode = inquirer.select(
+          message=f'📥  {episode_title[:50]} — What to do?',
+          choices=[
+            {'name': ' ▶  Play now', 'value': 'play'},
+            {'name': ' ⬇  Download', 'value': 'download'},
+          ],
+          style=custom_style,
+          qmark='',
+        ).execute()
+        if mode == 'download':
+          _download_episode(episode_title, episode_url, plugin, custom_style)
+          return True, None
     else:
       last_selected_server_name = "replay"
 
@@ -438,31 +453,11 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
     idx = selected
     _last_url = None
 
-    # Show play / download / back picker
-    ep_title = episode_list[idx]['title']
-    mode = inquirer.select(
-      message=f'📥  {ep_title[:50]}',
-      choices=[
-        {'name': ' ▶  Play', 'value': 'play'},
-        {'name': ' ⬇  Download', 'value': 'download'},
-        {'name': ' ↩  Back', 'value': 'back'},
-      ],
-      style=custom_style,
-      qmark='',
-    ).execute()
-
-    if mode == 'download':
-      _download_episode(ep_title, episode_list[idx]['url'], plugin, custom_style)
-      clean = True
-      break
-    elif mode == 'back':
-      clean = True
-      break
-
     while True:
       print_header("🎬 NOW PLAYING", "▶")
       ok, url = _play_episode(
-        episode_list[idx]['url'], plugin, custom_style, server_url=_last_url)
+        episode_list[idx]['url'], plugin, custom_style,
+        server_url=_last_url, episode_title=episode_list[idx]['title'])
       if not ok:
         time.sleep(2)
         clean = True
