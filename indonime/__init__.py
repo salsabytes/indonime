@@ -10,7 +10,7 @@ from . import player
 from .ui import (
   console, print_banner, print_header, print_step,
   print_success, print_error, print_warning, print_info, print_separator,
-  make_episode_table, make_episode_page, make_postplay_actions, make_footer,
+  make_episode_page, make_postplay_actions, make_footer,
   make_progress_bar, styled_status, make_style, Palette,
 )
 
@@ -170,68 +170,97 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
   resume_idx = _check_history(anime_url, episode_list) if anime_url else None
   clean = True  # full redraw: clear + banner
 
+  # ponytail: page choices builder — single source, used by both Enter & kb handlers
+  def _page_choices(p):
+    s = p * page_size
+    e = min(s + page_size, len(episode_list))
+    ch = []
+    if p > 0:
+      ch.append({'name': '  ◀  PREV PAGE', 'value': '__prev__', 'enabled': False})
+    if resume_idx is not None and (resume_idx < s or resume_idx >= e):
+      ch.append({'name': f'  ⏺  RESUME  EP{resume_idx+1:02d}', 'value': resume_idx, 'enabled': False})
+    for i in range(s, e):
+      prefix = '  ▶' if resume_idx == i else '   '
+      ch.append({'name': f'{prefix} EP{i+1:02d}  —  {episode_list[i]["title"][:50]}', 'value': i, 'enabled': False})
+    if p + 1 < total_pages:
+      ne = min(e + page_size, len(episode_list))
+      ch.append({'name': f'  ▶  NEXT PAGE (EP{e+1}–{ne})', 'value': '__next__', 'enabled': False})
+    ch.append({'name': f'  ↩  {back_label}', 'value': 'back', 'enabled': False})
+    return ch
+
   while True:
     if clean:
       if show_banner:
         print_banner()
+      console.print(make_episode_page(episode_list, start=page * page_size))
       clean = False
-    console.print(make_episode_page(episode_list, start=page * page_size))
 
-    start = page * page_size
-    end = min(start + page_size, len(episode_list))
-
-    ep_choices = []
-    if page > 0:
-      ep_choices.append({'name': '  ◀  PREV PAGE', 'value': 'prev'})
-
-    # resume button if target not on current page
-    if resume_idx is not None and (resume_idx < start or resume_idx >= end):
-      ep_choices.append({
-        'name': f'  ⏺  RESUME  EP{resume_idx+1:02d}',
-        'value': resume_idx,
-      })
-
-    for i in range(start, end):
-      prefix = '  ▶' if resume_idx == i else '   '
-      ep_choices.append({
-        'name': f'{prefix} EP{i+1:02d}  —  {episode_list[i]["title"][:50]}',
-        'value': i,
-      })
-
-    if page + 1 < total_pages:
-      next_end = min(end + page_size, len(episode_list))
-      ep_choices.append({
-        'name': f'  ▶  NEXT PAGE (EP{end+1}–{next_end})',
-        'value': 'next',
-      })
-
-    ep_choices.append({'name': f'  ↩  {back_label}', 'value': 'back'})
-
-    fz = inquirer.fuzzy(
+    # ponytail: single inquirer.select — NEVER exits for page nav, zero flicker
+    sel = inquirer.select(
       message='▶  Select episode:',
-      choices=ep_choices,
-      default=idx if start <= idx < end else 0,
+      choices=_page_choices(page),
       style=custom_style,
       qmark="",
+      cycle=False,
     )
-    @fz.register_kb('left')
+
+    # Patch Enter handler: intercept nav items → update choices in-place
+    original_enter = sel._handle_enter
+    def _nav_enter(event):
+      nonlocal page
+      ctl = sel.content_control
+      val = ctl.selection['value']
+      if val == '__prev__' and page > 0:
+        page -= 1
+        ctl.choices = _page_choices(page)
+        ctl._selected_choice_index = 0
+        event.app.invalidate()
+      elif val == '__next__' and page + 1 < total_pages:
+        page += 1
+        ctl.choices = _page_choices(page)
+        ctl._selected_choice_index = 0
+        event.app.invalidate()
+      else:
+        original_enter(event)
+    sel._handle_enter = _nav_enter
+    # update keybinding func ref before _keybinding_factory runs
+    sel.kb_func_lookup['answer'] = [{'func': _nav_enter}]
+
+    @sel.register_kb('left')
     def _(event):
-      event.app.exit(result='__prev__')
-    @fz.register_kb('right')
+      nonlocal page
+      if page > 0:
+        page -= 1
+        ctl = sel.content_control
+        ctl.choices = _page_choices(page)
+        ctl._selected_choice_index = 0
+        event.app.invalidate()
+
+    @sel.register_kb('right')
     def _(event):
-      event.app.exit(result='__next__')
-    selected = fz.execute()
+      nonlocal page
+      if page + 1 < total_pages:
+        page += 1
+        ctl = sel.content_control
+        ctl.choices = _page_choices(page)
+        ctl._selected_choice_index = 0
+        event.app.invalidate()
+
+    selected = sel.execute()
 
     if selected is None or selected == 'back':
       from .plugins._base import cache_clear
       cache_clear()
       return 'back'
 
-    if selected in ('prev', '__prev__'):
-      page -= 1
+    # safety guards — keyboard Enter handler already catches __prev__/__next__ in-place
+    if selected == '__prev__':
+      if page > 0:
+        page -= 1
       continue
-    if selected in ('next', '__next__'):
-      page += 1
+    if selected == '__next__':
+      if page + 1 < total_pages:
+        page += 1
       continue
 
     idx = selected

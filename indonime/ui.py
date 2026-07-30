@@ -182,14 +182,13 @@ def make_episode_table(episode_list, start=0, count=25) -> Table:
 
 
 def make_episode_page(episode_list, start=0, count=25) -> Group:
-  """Header + table + separator as one renderable (single terminal write)."""
+  """Header + separator (table removed per user request)."""
   header = Padding(Columns([
     Text(" 🎬 ", style=Palette.primary),
     Text("📋 EPISODES", style=Style(color=Palette.primary, bold=True)),
   ], padding=(0, 1)), pad=(1, 0, 0, 0))
   return Group(
     header,
-    make_episode_table(episode_list, start, count),
     Rule(style=Palette.border),
   )
 
