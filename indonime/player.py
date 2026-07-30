@@ -27,7 +27,8 @@ def play_with_mpv(video_target, is_temp_file=False, cleanup=True):
     return False
 
   mpv_args = [str(_mpv_path), video_target,
-        '--title=Indonime Player', '--force-window=yes', '--really-quiet']
+        '--title=Indonime Player', '--force-window=yes',
+        '--really-quiet', '--no-terminal']
   try:
     if is_temp_file:
       subprocess.run(mpv_args)
