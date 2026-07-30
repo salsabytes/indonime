@@ -134,8 +134,8 @@ def print_separator():
 
 
 # ── Episode page ──────────────────────────
-def make_episode_page(episode_list, start=0, count=25) -> Group:
-  """Header + separator (table removed per user request)."""
+def make_episode_page(episode_list, start=0) -> Group:
+  """Header + separator."""
   header = Padding(Columns([
     Text(" 🎬 ", style=Palette.primary),
     Text("📋 EPISODES", style=Style(color=Palette.primary, bold=True)),

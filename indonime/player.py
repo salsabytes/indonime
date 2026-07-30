@@ -10,8 +10,6 @@ if sys.platform == "win32":
 else:
   _MPV_DIR = Path.home() / ".local" / "share" / "indonime" / "mpv"
 
-_BASE_DIR = Path(__file__).resolve().parent.parent
-
 current_mpv_process = None
 _mpv_path = None
 
@@ -21,8 +19,7 @@ def play_with_mpv(video_target, is_temp_file=False, cleanup=True):
   if current_mpv_process and current_mpv_process.poll() is None:
     current_mpv_process.terminate()
 
-  if _mpv_path is None:
-    _mpv_path = _find_mpv()
+  _mpv_path = _mpv_path or _find_mpv()
   if _mpv_path is None:
     return False
 
@@ -50,7 +47,7 @@ def _find_mpv():
   if appdata_mpv.exists():
     return appdata_mpv
 
-  dev_mpv = (_BASE_DIR / "mpv" / mpv_name).resolve()
+  dev_mpv = (Path(__file__).resolve().parent.parent / "mpv" / mpv_name).resolve()
   if dev_mpv.exists():
     return dev_mpv
 

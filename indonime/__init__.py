@@ -16,13 +16,31 @@ from .ui import (
 )
 
 from . import plugins
-import requests
 from InquirerPy import inquirer
 from .ext import pdrain, megaNZ
-from .plugins._base import HEADERS
+from .plugins._base import HEADERS, SESSION
 
-_SESSION = requests.Session()
-_SESSION.headers.update(HEADERS)
+# ── Compatible server prefixes ────────────────
+_COMPATIBLE = {'pdrain', 'pixeldrain', 'mega'}
+
+
+def _mega_fid(url):
+  """Extract file ID from MEGA URL. Handles #! format. Returns (clean_url, f_id)."""
+  clean = url.replace("#!", "file/").replace("!", "#", 1) if "#!" in url else url
+  try:
+    return clean, clean.split("file/")[1].split("#")[0]
+  except IndexError:
+    return None, None
+
+
+def _mega_key(url):
+  """Extract decryption key from MEGA URL fragment."""
+  if "#" in url:
+    frag = url.split("#")[-1]
+    if "!" in frag:
+      return frag.split("!")[-1]
+    return frag
+  return None
 
 # ── History ─────────────────────────────────────
 _HISTORY_FILE = os.path.join(os.path.expanduser("~"), ".indonime", "history.json")
@@ -67,7 +85,7 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
       options = []
       for res, servers in dl_links.items():
         for s_name, s_url in servers.items():
-          if any(x in s_name.lower() for x in ['pdrain', 'pixeldrain', 'mega']):
+          if any(x in s_name.lower() for x in _COMPATIBLE):
             label = f'[{res}] {s_name}'
             options.append({'name': label, 'value': (label, s_url)})
 
@@ -113,7 +131,7 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
         )
 
         try:
-          resp = _SESSION.get(server_url, allow_redirects=True, timeout=15)
+          resp = SESSION.get(server_url, allow_redirects=True, timeout=15)
           curr = resp.url
           if ("mega.nz" in curr or "mega.co.nz" in curr) and ("#" in curr or "#!" in curr):
             # link aslinya emang pake mega.co.nz, jangan di-replace!
@@ -131,14 +149,13 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
         if not final_mega_url:
           print_error("Timeout: Gagal mendapatkan link Mega.")
           server_url = None
-          continue
-
-        if "#!" in final_mega_url:
-          final_mega_url = final_mega_url.replace("#!", "file/").replace("!", "#", 1)
-
-        # ponytail: sequential > parallel
+          continue        # ponytail: sequential > parallel
         try:
-          f_id = final_mega_url.split("file/")[1].split("#")[0]
+          final_mega_url, f_id = _mega_fid(final_mega_url)
+          if f_id is None:
+            print_error("Gagal extract file ID MEGA.")
+            server_url = None
+            continue
           stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id, console)
           if stream is None:
             server_url = None
@@ -146,8 +163,7 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
           path, ready, stop, dl_thread, bytes_counter, file_size = stream
 
           progress.update(task,
-            description=f"[{Palette.highlight}]📥 Buffering stream...",
-            total=file_size)
+            description=f"[{Palette.highlight}]📥 Buffering stream...")
 
           _stall_t0 = time.time()
           while not ready.is_set():
@@ -155,9 +171,7 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
               print_warning("Buffering timed out (>60s). Check connection or retry.")
               server_url = None
               break
-            progress.update(task, completed=bytes_counter[0])
             time.sleep(0.15)
-          progress.update(task, completed=bytes_counter[0])
           if server_url is None:
             continue
         except Exception as e:
@@ -206,7 +220,7 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
     options = []
     for res, servers in dl_links.items():
       for s_name, s_url in servers.items():
-        if any(x in s_name.lower() for x in ['pdrain', 'pixeldrain', 'mega']):
+        if any(x in s_name.lower() for x in _COMPATIBLE):
           label = f'[{res}] {s_name}'
           options.append({'name': label, 'value': (label, s_url)})
 
@@ -227,39 +241,22 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
   if 'mega' in server_url.lower() or (server_name and 'mega' in server_name.lower()):
     # Follow redirect to get final Mega URL
     try:
-      resp = _SESSION.get(server_url, allow_redirects=True, timeout=15)
+      resp = SESSION.get(server_url, allow_redirects=True, timeout=15)
       curr = resp.url
     except Exception as e:
       print_error(f"Requests Error: {e}")
       return
 
-    # Extract key — try server_url first, then resp.url (redirect may expose it)
-    megakey_raw = None
-    for u in (server_url, curr):
-      if "#" in u:
-        frag = u.split("#")[-1]
-        if "!" in frag:
-          frag = frag.split("!")[-1]
-        if frag:
-          megakey_raw = frag
-          break
-
-    # Extract file_id from redirected URL
-    f_id = None
-    if "file/" in curr:
-      f_id = curr.split("file/")[1].split("#")[0]
-    elif "#!" in curr:
-      f_id = curr.split("#!")[1].split("!")[0]
-    elif "file/" in server_url:
-      f_id = server_url.split("file/")[1].split("#")[0]
-    elif "#!" in server_url:
-      f_id = server_url.split("#!")[1].split("!")[0]
-
+    # Extract key + file_id — try server_url first, then redirect URL
+    megakey_raw = _mega_key(server_url) or _mega_key(curr)
+    _, f_id = _mega_fid(curr)
+    if not f_id:
+      _, f_id = _mega_fid(server_url)
     if not f_id:
       print_error("Could not extract Mega file ID.")
       return
 
-    # Reconstruct URL with key preserved — keep original domain
+    # Reconstruct clean URL
     mega_domain = "mega.nz" if "mega.nz" in server_url else "mega.co.nz"
     mega_url = f"https://{mega_domain}/file/{f_id}#{megakey_raw}"
 
@@ -300,7 +297,7 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
         print_error("Stream not available.")
         return
 
-      resp = requests.get(final_url, stream=True, timeout=30)
+      resp = SESSION.get(final_url, stream=True, timeout=30)
       total = int(resp.headers.get('content-length', 0))
       dest = os.path.join(downloads_dir, f"{safe}.mp4")
 
@@ -320,7 +317,7 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
 
 
 def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
-                 show_banner=True, anime_url=None):
+                 show_banner=True, anime_url=None, mode='play'):
   """Episode pick → play → post-play loop. Returns 'back' or 'quit'."""
   idx = 0
   _last_url = None
@@ -483,6 +480,10 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
       continue
 
     idx = selected
+    if mode == 'download':
+      _download_episode(episode_list[idx]['title'], episode_list[idx]['url'], plugin, custom_style)
+      time.sleep(2)
+      return 'back'
     _last_url = None
 
     while True:
@@ -643,7 +644,7 @@ def _tui_loop():
 
 
 def _download_mode(query, provider='otakudesu'):
-  # One-shot search → download → exit.
+  """One-shot search → download → exit."""
   custom_style = make_style()
   print_banner()
 
@@ -661,94 +662,9 @@ def _download_mode(query, provider='otakudesu'):
     return
 
   selected_url, episode_list = hit
-
-  # Simple episode picker (no post-play loop)
-  idx = 0
-  page = 0
-  page_size = 12
-  total_pages = max(1, (len(episode_list) + page_size - 1) // page_size)
-
-  def _page_choices(p):
-    s = p * page_size
-    e = min(s + page_size, len(episode_list))
-    ch = []
-    if p > 0:
-      ch.append({'name': '  ◀  PREV PAGE', 'value': '__prev__', 'enabled': False})
-    for i in range(s, e):
-      ch.append({'name': f'  EP{i+1:02d}  —  {episode_list[i]["title"][:50]}', 'value': i, 'enabled': False})
-    if p + 1 < total_pages:
-      ne = min(e + page_size, len(episode_list))
-      ch.append({'name': f'  ▶  NEXT PAGE (EP{e+1}–{ne})', 'value': '__next__', 'enabled': False})
-    ch.append({'name': '  ↩  QUIT', 'value': '__quit__', 'enabled': False})
-    return ch
-
-  while True:
-    console.print(make_episode_page(episode_list, start=page * page_size))
-
-    sel = inquirer.select(
-      message='📥  Select episode to download:',
-      choices=_page_choices(page),
-      style=custom_style,
-      qmark='',
-      cycle=True,
-    )
-
-    original_enter = sel._handle_enter
-    def _nav_enter(event):
-      nonlocal page
-      ctl = sel.content_control
-      val = ctl.selection['value']
-      if val == '__prev__' and page > 0:
-        page -= 1
-        ctl.choices = _page_choices(page)
-        ctl._selected_choice_index = 0
-        event.app.invalidate()
-      elif val == '__next__' and page + 1 < total_pages:
-        page += 1
-        ctl.choices = _page_choices(page)
-        ctl._selected_choice_index = 0
-        event.app.invalidate()
-      else:
-        original_enter(event)
-    sel._handle_enter = _nav_enter
-    sel.kb_func_lookup['answer'] = [{'func': _nav_enter}]
-
-    @sel.register_kb('left')
-    def _(event):
-      nonlocal page
-      if page > 0:
-        page -= 1
-        ctl = sel.content_control
-        ctl.choices = _page_choices(page)
-        ctl._selected_choice_index = 0
-        event.app.invalidate()
-
-    @sel.register_kb('right')
-    def _(event):
-      nonlocal page
-      if page + 1 < total_pages:
-        page += 1
-        ctl = sel.content_control
-        ctl.choices = _page_choices(page)
-        ctl._selected_choice_index = 0
-        event.app.invalidate()
-
-    selected = sel.execute()
-
-    if selected is None or selected == '__quit__':
-      break
-    if selected == '__prev__':
-      if page > 0:
-        page -= 1
-      continue
-    if selected == '__next__':
-      if page + 1 < total_pages:
-        page += 1
-      continue
-
-    # Download the selected episode
-    _download_episode(episode_list[selected]['title'], episode_list[selected]['url'], plugin, custom_style)
-    break
+  _episode_nav(episode_list, plugin, custom_style,
+    back_label='<< QUIT', show_banner=False,
+    anime_url=selected_url, mode='download')
 
 
 def _search_mode(query, provider='otakudesu'):

@@ -2,7 +2,6 @@
 import os
 import sys
 import shutil
-import platform
 import subprocess
 import urllib.request
 from pathlib import Path
@@ -56,7 +55,6 @@ def _install_windows():
 
   for exe, args in [
     (r"C:\Program Files\7-Zip\7z.exe", [r"C:\Program Files\7-Zip\7z.exe", "x", str(mpv_7z), f"-o{MPV_DIR}", "-y"]),
-    (r"C:\Program Files\WinRAR\WinRAR.exe", [r"C:\Program Files\WinRAR\WinRAR.exe", "x", str(mpv_7z), f"{MPV_DIR}\\"]),
   ]:
     if os.path.exists(exe):
       subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -76,30 +74,6 @@ def _install_windows():
   return ok
 
 
-def _install_macos():
-  if shutil.which("brew"):
-    console.print("[cyan]Installing mpv via Homebrew...[/cyan]")
-    r = subprocess.run(["brew", "install", "mpv"], capture_output=True, text=True)
-    if r.returncode == 0:
-      console.print("[green]✓ mpv installed via Homebrew[/green]")
-      return True
-    console.print(f"[yellow]⚠ Homebrew failed: {r.stderr.strip()}[/yellow]")
-  console.print("[yellow]Install manually: brew install mpv[/yellow]")
-  return False
-
-
-def _install_linux():
-  if shutil.which("apt"):
-    console.print("[cyan]Installing mpv via apt...[/cyan]")
-    r = subprocess.run(["apt", "install", "-y", "mpv"], capture_output=True, text=True)
-    if r.returncode == 0:
-      console.print("[green]✓ mpv installed via apt[/green]")
-      return True
-    console.print(f"[yellow]⚠ apt failed: {r.stderr.strip()}[/yellow]")
-  console.print("[yellow]Install manually: apt install mpv[/yellow]")
-  return False
-
-
 def main():
   console.print("[bold cyan]📺 Indonime - MPV Setup[/bold cyan]\n")
 
@@ -107,13 +81,11 @@ def main():
     console.print("[green]✓ mpv already in PATH[/green]")
     return
 
-  system = platform.system()
-  console.print(f"[dim]OS: {system}[/dim]")
-
-  ok = {
-    "Windows": _install_windows,
-    "Darwin": _install_macos,
-  }.get(system, _install_linux)()
+  if sys.platform == "win32":
+    ok = _install_windows()
+  else:
+    console.print("[yellow]Install mpv manually: apt install mpv / brew install mpv[/yellow]")
+    ok = False
 
   if not ok:
     console.print("\n[yellow]Install mpv manually:[/yellow]")

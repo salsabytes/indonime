@@ -18,7 +18,8 @@ HEADERS = {
   ),
 }
 
-_SESSION = requests.Session()
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
 
 _CACHE = {}
 _CACHE_AT = {}
@@ -46,7 +47,7 @@ def cache_clear():
 
 def fetch_soup(url, headers=HEADERS, timeout=15):
   """GET url → BeautifulSoup. Raises on failure."""
-  res = _SESSION.get(url, headers=headers, timeout=timeout)
+  res = SESSION.get(url, headers=headers, timeout=timeout)
   res.raise_for_status()
   return BeautifulSoup(res.text, 'html.parser')
 

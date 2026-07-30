@@ -1,7 +1,6 @@
-import requests
 from urllib.parse import urlparse
 from ..ui import console
-from ..plugins._base import HEADERS
+from ..plugins._base import SESSION
 
 
 _PIXELDRAIN_DOMAIN = "pixeldrain.com"
@@ -19,7 +18,7 @@ def _is_pixeldrain_url(url):
 def _is_playable(url):
   """HEAD check: file exists & returns video content."""
   try:
-    r = requests.head(url, allow_redirects=True, timeout=10)
+    r = SESSION.head(url, allow_redirects=True, timeout=10)
     if r.status_code != 200:
       return False
     ctype = r.headers.get("Content-Type", "")
@@ -31,7 +30,7 @@ def _is_playable(url):
 def scrape(url):
   try:
     with console.status("[bold cyan]Bypassing Otakulinks...[/bold cyan]"):
-      response = requests.get(url, headers=HEADERS, allow_redirects=True, timeout=15)
+      response = SESSION.get(url, allow_redirects=True, timeout=15)
 
     final_url = response.url
 

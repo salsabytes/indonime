@@ -14,11 +14,14 @@ if not shutil.which("pyinstaller"):
   print("❌ PyInstaller not found. Install: pip install pyinstaller")
   sys.exit(1)
 
+# Hapus output lama, lebih cepat dari --clean (yang hapus cache PyInstaller)
+for d in ['dist', 'build']:
+  shutil.rmtree(d, ignore_errors=True)
+
 PYINSTALLER_ARGS = [
   sys.executable, "-m", "PyInstaller",
   "--onefile",
   "--console",
-  "--clean",
   "--name", "Indonime",
   # dynamic imports — PyInstaller can't auto-detect these
   "--collect-data", "pyfiglet",

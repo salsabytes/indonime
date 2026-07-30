@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "indonime"
-version = "1.5.4"
+version = "1.6.0"
 description = "Subtitle Indonesia Anime Searcher - TUI application"
 readme = "README.md"
 license = "MIT"
@@ -15,6 +15,7 @@ dependencies = [
     "InquirerPy",
     "rich",
     "cryptography>=49.0.0",
+    "pyfiglet",
 ]
 
 [project.scripts]

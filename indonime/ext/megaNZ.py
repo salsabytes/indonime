@@ -1,25 +1,17 @@
 """MEGA stream decrypt — reused cipher + prefetch thread."""
 import os
 import random
-import requests
+import sys
 import base64
 import threading
 import queue
 import tempfile
 
-_SESSION = requests.Session()
-_SESSION.headers.update({
-  'User-Agent': (
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-    'AppleWebKit/537.36 (KHTML, like Gecko) '
-    'Chrome/120.0.0.0 Safari/537.36'
-  ),
-})
+from ..plugins._base import SESSION
 
 # ── AES via cryptography (hard dep) ──────────
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
-_TEMP_PATH = os.path.join(tempfile.gettempdir(), "indonime_stream_cache.mp4")
 
 
 def mega_base64_decode(data):
@@ -44,7 +36,7 @@ def _fetch_file_info(file_id):
   """MEGA API → (dl_link, file_size)."""
   try:
     seq = random.randint(0, 0xFFFFFFFF)
-    res = _SESSION.post(
+    res = SESSION.post(
       f"https://g.api.mega.co.nz/cs?id={seq}",
       json=[{"a": "g", "g": 1, "p": file_id}],
       timeout=15,
@@ -54,11 +46,11 @@ def _fetch_file_info(file_id):
       err_names = {-1:"internal",-2:"invalid",-3:"retry",-4:"rate-limited",
                    -5:"denied",-6:"not found",-7:"inaccessible",-8:"quota",
                    -9:"bad key",-11:"logged out",-13:"expired",-14:"blocked"}
-      print(f"[mega] API err {err} ({err_names.get(err,'?')})", file=__import__('sys').stderr)
+      print(f"[mega] API err {err} ({err_names.get(err,'?')})", file=sys.stderr)
       return None
     return res[0]['g'], res[0]['s']
   except Exception as e:
-    print(f"[mega] _fetch_file_info exception: {e}", file=__import__('sys').stderr)
+    print(f"[mega] _fetch_file_info exception: {e}", file=sys.stderr)
     return None
 
 
@@ -94,9 +86,11 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
   _fmt = [None]  # mutable for closure: 'mp4' or 'mkv'
   bytes_counter = [0]  # ponytail: shared counter for 0-100% progress
 
+  temp_path = tempfile.mktemp(suffix='.mp4')
+
   def _download():
     try:
-      response = _SESSION.get(dl_link, stream=True)
+      response = SESSION.get(dl_link, stream=True)
       chunk_queue = queue.Queue(maxsize=2)
       stop_prefetch = threading.Event()
 
@@ -110,7 +104,7 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
       _first_dec = None
       c = Cipher(algorithms.AES(k), modes.CTR(iv), backend=default_backend())
       d = c.decryptor()
-      with open(_TEMP_PATH, "wb") as f:
+      with open(temp_path, "wb") as f:
         while True:
           chunk = chunk_queue.get()
           if chunk is None:
@@ -139,4 +133,4 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
   dl_thread = threading.Thread(target=_download, daemon=True)
   dl_thread.start()
 
-  return _TEMP_PATH, ready, stop, dl_thread, bytes_counter, file_size
+  return temp_path, ready, stop, dl_thread, bytes_counter, file_size
