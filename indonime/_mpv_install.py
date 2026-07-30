@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-platform mpv installer."""
+# Cross-platform mpv installer.
 import os
 import sys
 import shutil
@@ -44,7 +44,7 @@ def _download(url, dest, desc="Downloading"):
 
 
 def _install_windows():
-  """Download mpv.7z, extract via 7zr.exe (standalone)."""
+  # Download mpv.7z, extract via 7zr.exe (standalone).
   BASE.mkdir(parents=True, exist_ok=True)
   mpv_url = "https://github.com/salsa-ram/indonime/releases/download/v1.0.0-mpv/mpv.7z"
   mpv_7z = BASE / "mpv.7z"

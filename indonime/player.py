@@ -42,7 +42,7 @@ def play_with_mpv(video_target, is_temp_file=False, cleanup=True):
 
 
 def _find_mpv():
-  """Locate mpv binary. Cache first successful result."""
+  # Locate mpv binary. Cache first successful result.
   mpv_name = "mpv.com" if sys.platform == "win32" else "mpv"
 
   appdata_mpv = (_MPV_DIR / mpv_name).resolve()
