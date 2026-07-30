@@ -246,6 +246,65 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
         ctl._selected_choice_index = 0
         event.app.invalidate()
 
+    digit_buffer = ""
+    last_digit_time = 0.0
+
+    def _handle_digit(event, digit):
+      nonlocal page, digit_buffer, last_digit_time
+      now = time.time()
+      if now - last_digit_time > 1.5:
+        digit_buffer = ""
+      digit_buffer += digit
+      last_digit_time = now
+      sel._message = f"▶  Select episode (go to: {digit_buffer}):"
+      try:
+        target_idx = int(digit_buffer) - 1
+        if 0 <= target_idx < len(episode_list):
+          target_page = target_idx // page_size
+          page = target_page
+          ctl = sel.content_control
+          ctl.choices = _page_choices(page)
+          for index, ch in enumerate(ctl.choices):
+            if ch['value'] == target_idx:
+              ctl._selected_choice_index = index
+              break
+      except ValueError:
+        pass
+      event.app.invalidate()
+
+    def _bind_digit(d):
+      @sel.register_kb(d)
+      def _(event):
+        _handle_digit(event, d)
+
+    for d in "0123456789":
+      _bind_digit(d)
+
+    @sel.register_kb('backspace')
+    def _(event):
+      nonlocal page, digit_buffer, last_digit_time
+      if digit_buffer:
+        digit_buffer = digit_buffer[:-1]
+        last_digit_time = time.time()
+        if digit_buffer:
+          sel._message = f"▶  Select episode (go to: {digit_buffer}):"
+          try:
+            target_idx = int(digit_buffer) - 1
+            if 0 <= target_idx < len(episode_list):
+              target_page = target_idx // page_size
+              page = target_page
+              ctl = sel.content_control
+              ctl.choices = _page_choices(page)
+              for index, ch in enumerate(ctl.choices):
+                if ch['value'] == target_idx:
+                  ctl._selected_choice_index = index
+                  break
+          except ValueError:
+            pass
+        else:
+          sel._message = '▶  Select episode:'
+        event.app.invalidate()
+
     selected = sel.execute()
 
     if selected is None or selected == 'back':
