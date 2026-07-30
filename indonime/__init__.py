@@ -528,12 +528,6 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
       elif cmd == '⚙  QUALITY':
         _last_url = None
         continue
-      elif cmd == '⬇  DOWNLOAD':
-        _download_episode(
-          episode_list[idx]['title'], episode_list[idx]['url'],
-          plugin, custom_style)
-        time.sleep(2)
-        continue
       else:
         return 'quit'
 
