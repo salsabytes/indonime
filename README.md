@@ -21,7 +21,9 @@
 
   <br>
 
-  <video src="https://github.com/user-attachments/assets/7057b06a-859e-47cc-a555-50d1cfd3996f" width="80%" controls autoplay loop muted style="max-width: 100%; border-radius: 10px;"></video>
+  <div style="max-width: 640px; margin: 0 auto;">
+    <video src="https://github.com/user-attachments/assets/7057b06a-859e-47cc-a555-50d1cfd3996f" controls autoplay loop muted style="width: 100%; border-radius: 10px;"></video>
+  </div>
 
   <br><br>
 
