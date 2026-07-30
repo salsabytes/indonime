@@ -7,7 +7,7 @@ name = "indonime"
 version = "1.5.1"
 description = "Subtitle Indonesia Anime Searcher - TUI application"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "requests",
@@ -22,3 +22,6 @@ indonime = "indonime:main"
 
 [project.urls]
 Source = "https://github.com/salsabytes/indonime"
+
+[tool.setuptools.packages.find]
+include = ["indonime", "indonime.*"]
