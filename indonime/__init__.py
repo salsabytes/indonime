@@ -381,6 +381,41 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
         return 'quit'
 
 
+# ── Search and select helper ──────────────
+def _search_and_select(plugin, query, custom_style):
+  """Search → pick title → fetch episode list. Returns (url, episode_list) or None."""
+  print_header("🔎 SEARCHING", "🔎")
+  with console.status(styled_status(f'Searching for "{query}"...')):
+    results = plugin.search_anime(query)
+
+  if not results:
+    return None
+
+  choices = [item['title'] for item in results] + ['-- ABORT --']
+  selected_title = inquirer.fuzzy(
+    message='📺  Select title:',
+    choices=choices,
+    style=custom_style,
+    cycle=True,
+  ).execute()
+
+  if selected_title == '-- ABORT --' or not selected_title:
+    return None
+
+  selected_url = next(
+    item['url'] for item in results
+    if item['title'] == selected_title
+  )
+
+  print_header("📋 EPISODES", "🎬")
+  with console.status(styled_status("Fetching episode list...")):
+    episode_list = plugin.episodes(selected_url)
+
+  if not episode_list:
+    return None
+
+  return selected_url, episode_list
+
 def _tui_loop():
   p_name = 'otakudesu'
   _last_plugin_name = None
@@ -432,40 +467,13 @@ def _tui_loop():
     if not result:
       break
 
-    print_header("🔎 SEARCHING", "🔎")
-    with console.status(styled_status(f'Searching for "{result}"...')):
-      results = _plugin.search_anime(result)
-
-    if not results:
-      print_warning("No results found.")
+    hit = _search_and_select(_plugin, result, custom_style)
+    if hit is None:
+      print_warning("Nothing found.")
       time.sleep(2)
       continue
 
-    choices = [item['title'] for item in results] + ['-- ABORT --']
-    selected_title = inquirer.fuzzy(
-      message='📺  Select title:',
-      choices=choices,
-      style=custom_style,
-      cycle=True,
-    ).execute()
-
-    if selected_title == '-- ABORT --' or not selected_title:
-      continue
-
-    selected_url = next(
-      item['url'] for item in results
-      if item['title'] == selected_title
-    )
-
-    print_header("📋 EPISODES", "🎬")
-    with console.status(styled_status("Fetching episode list...")):
-      episode_list = _plugin.episodes(selected_url)
-
-    if not episode_list:
-      print_warning("No episodes found.")
-      time.sleep(2)
-      continue
-
+    selected_url, episode_list = hit
     if _episode_nav(
       episode_list, _plugin, custom_style,
       back_label='<< BACK TO SEARCH', show_banner=True,
@@ -490,39 +498,13 @@ def _search_mode(query, provider='otakudesu'):
     input('[Press Enter]')
     return
 
-  print_header("🔎 SEARCHING", "🔎")
-  with console.status(styled_status(f'Searching for "{query}"...')):
-    results = plugin.search_anime(query)
-
-  if not results:
-    print_warning("No results found.")
+  hit = _search_and_select(plugin, query, custom_style)
+  if hit is None:
+    print_warning("Nothing found.")
     input('[Press Enter]')
     return
 
-  choices = [item['title'] for item in results] + ['-- ABORT --']
-  selected_title = inquirer.fuzzy(
-    message='📺  Select title:',
-    choices=choices,
-    style=custom_style,
-    cycle=True,
-  ).execute()
-
-  if selected_title == '-- ABORT --' or not selected_title:
-    return
-
-  selected_url = next(
-    item['url'] for item in results
-    if item['title'] == selected_title
-  )
-
-  print_header("📋 EPISODES", "🎬")
-  with console.status(styled_status("Fetching episode list...")):
-    episode_list = plugin.episodes(selected_url)
-
-  if not episode_list:
-    print_warning("No episodes found.")
-    input('[Press Enter]')
-    return
+  selected_url, episode_list = hit
 
   _episode_nav(
     episode_list, plugin, custom_style,

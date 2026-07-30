@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """MEGA stream decrypt — reused cipher + prefetch thread."""
 import os
 import random

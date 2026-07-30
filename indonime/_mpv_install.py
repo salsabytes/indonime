@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Cross-platform mpv installer.
 import os
 import sys
