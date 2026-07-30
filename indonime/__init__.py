@@ -641,13 +641,122 @@ def _search_mode(query, provider='otakudesu'):
     player.current_mpv_process.wait()
 
 
+def _download_mode(query, provider='otakudesu'):
+  # One-shot search → download → exit.
+  custom_style = make_style()
+  print_banner()
+
+  try:
+    plugin = importlib.import_module(f'indonime.plugins.{provider}')
+  except Exception as e:
+    print_error(f"Plugin error: {e}")
+    input('[Press Enter]')
+    return
+
+  hit = _search_and_select(plugin, query, custom_style)
+  if hit is None:
+    print_warning("Nothing found.")
+    input('[Press Enter]')
+    return
+
+  selected_url, episode_list = hit
+
+  # Simple episode picker (no post-play loop)
+  idx = 0
+  page = 0
+  page_size = 12
+  total_pages = max(1, (len(episode_list) + page_size - 1) // page_size)
+
+  def _page_choices(p):
+    s = p * page_size
+    e = min(s + page_size, len(episode_list))
+    ch = []
+    if p > 0:
+      ch.append({'name': '  ◀  PREV PAGE', 'value': '__prev__', 'enabled': False})
+    for i in range(s, e):
+      ch.append({'name': f'  EP{i+1:02d}  —  {episode_list[i]["title"][:50]}', 'value': i, 'enabled': False})
+    if p + 1 < total_pages:
+      ne = min(e + page_size, len(episode_list))
+      ch.append({'name': f'  ▶  NEXT PAGE (EP{e+1}–{ne})', 'value': '__next__', 'enabled': False})
+    ch.append({'name': '  ↩  QUIT', 'value': '__quit__', 'enabled': False})
+    return ch
+
+  while True:
+    console.print(make_episode_page(episode_list, start=page * page_size))
+
+    sel = inquirer.select(
+      message='📥  Select episode to download:',
+      choices=_page_choices(page),
+      style=custom_style,
+      qmark='',
+      cycle=True,
+    )
+
+    original_enter = sel._handle_enter
+    def _nav_enter(event):
+      nonlocal page
+      ctl = sel.content_control
+      val = ctl.selection['value']
+      if val == '__prev__' and page > 0:
+        page -= 1
+        ctl.choices = _page_choices(page)
+        ctl._selected_choice_index = 0
+        event.app.invalidate()
+      elif val == '__next__' and page + 1 < total_pages:
+        page += 1
+        ctl.choices = _page_choices(page)
+        ctl._selected_choice_index = 0
+        event.app.invalidate()
+      else:
+        original_enter(event)
+    sel._handle_enter = _nav_enter
+    sel.kb_func_lookup['answer'] = [{'func': _nav_enter}]
+
+    @sel.register_kb('left')
+    def _(event):
+      nonlocal page
+      if page > 0:
+        page -= 1
+        ctl = sel.content_control
+        ctl.choices = _page_choices(page)
+        ctl._selected_choice_index = 0
+        event.app.invalidate()
+
+    @sel.register_kb('right')
+    def _(event):
+      nonlocal page
+      if page + 1 < total_pages:
+        page += 1
+        ctl = sel.content_control
+        ctl.choices = _page_choices(page)
+        ctl._selected_choice_index = 0
+        event.app.invalidate()
+
+    selected = sel.execute()
+
+    if selected is None or selected == '__quit__':
+      break
+    if selected == '__prev__':
+      if page > 0:
+        page -= 1
+      continue
+    if selected == '__next__':
+      if page + 1 < total_pages:
+        page += 1
+      continue
+
+    # Download the selected episode
+    _download_episode(episode_list[selected]['title'], episode_list[selected]['url'], plugin, custom_style)
+    break
+
+
 def main():
   parser = argparse.ArgumentParser(
     description='Indonime — Subtitle Indonesia Anime Searcher'
   )
   parser.add_argument(
     'mode', nargs='?', default='tui',
-    help='Mode: tui (interactive, default) or search <query>'
+    help='Mode: tui (interactive, default), search <query>, or download <query>'
   )
   parser.add_argument('query', nargs='*', help='Search query')
   parser.add_argument(
@@ -659,5 +768,7 @@ def main():
 
   if args.mode == 'search' and args.query:
     _search_mode(' '.join(args.query), args.provider)
+  elif args.mode == 'download' and args.query:
+    _download_mode(' '.join(args.query), args.provider)
   else:
     _tui_loop()
