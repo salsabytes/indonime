@@ -105,7 +105,8 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None):
           resp = _SESSION.get(server_url, allow_redirects=True, timeout=15)
           curr = resp.url
           if ("mega.nz" in curr or "mega.co.nz" in curr) and ("#" in curr or "#!" in curr):
-            final_mega_url = curr.replace("mega.co.nz", "mega.nz")
+            # link aslinya emang pake mega.co.nz, jangan di-replace!
+            final_mega_url = curr
           else:
             print_error("Redirect tidak mengarah ke Mega.")
             server_url = None
