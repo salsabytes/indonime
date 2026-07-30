@@ -56,107 +56,115 @@ def _check_history(anime_url, episode_list):
 # ── Play episode ────────────────────────────────
 def _play_episode(episode_url, plugin, custom_style, server_url=None):
   """Resolve stream and play. Returns (success, server_url)."""
-  if server_url is None:
-    with console.status(styled_status("🔍 Resolving stream...")):
-      dl_links = plugin.downloads(episode_url)
+  while True:
+    if server_url is None:
+      with console.status(styled_status("🔍 Resolving stream...")):
+        dl_links = plugin.downloads(episode_url)
 
-    options = []
-    for res, servers in dl_links.items():
-      for s_name, s_url in servers.items():
-        if any(x in s_name.lower() for x in ['pdrain', 'pixeldrain', 'mega']):
-          label = f'[{res}] {s_name}'
-          options.append({'name': label, 'value': (label, s_url)})
+      options = []
+      for res, servers in dl_links.items():
+        for s_name, s_url in servers.items():
+          if any(x in s_name.lower() for x in ['pdrain', 'pixeldrain', 'mega']):
+            label = f'[{res}] {s_name}'
+            options.append({'name': label, 'value': (label, s_url)})
 
-    if not options:
-      print_warning("No compatible servers found.")
-      return False, None
-
-    selected = inquirer.select(
-      message='📥  Select quality & server:',
-      choices=options,
-      style=custom_style,
-    ).execute()
-    if not selected:
-      return False, None
-    last_selected_server_name, server_url = selected
-  else:
-    last_selected_server_name = "replay"
-
-  final_target = None
-  is_temp = False
-
-  if 'mega' in server_url.lower() or 'mega' in last_selected_server_name.lower():
-    final_mega_url = None
-    with make_progress_bar() as progress:
-      task = progress.add_task(
-        f"[{Palette.primary}]🔓 Resolving Mega link...",
-        total=None,
-      )
-
-      try:
-        resp = _SESSION.get(server_url, allow_redirects=True, timeout=15)
-        curr = resp.url
-        if "mega.nz" in curr and ("#" in curr or "#!" in curr):
-          final_mega_url = curr
-        else:
-          print_error("Redirect tidak mengarah ke Mega.")
-          return False, None
-      except Exception as e:
-        print_error(f"Requests Error: {e}")
-        time.sleep(3)
+      if not options:
+        print_warning("No compatible servers found.")
         return False, None
 
-      if not final_mega_url:
-        print_error("Timeout: Gagal mendapatkan link Mega.")
+      selected = inquirer.select(
+        message='📥  Select quality & server:',
+        choices=options,
+        style=custom_style,
+      ).execute()
+      if not selected:
         return False, None
-
-      if "#!" in final_mega_url:
-        final_mega_url = final_mega_url.replace("#!", "file/").replace("!", "#", 1)
-
-      progress.update(task,
-        description=f"[{Palette.highlight}]📥 Buffering stream...")
-
-      # ponytail: sequential > parallel
-      try:
-        f_id = final_mega_url.split("file/")[1].split("#")[0]
-        stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id, console)
-        if stream is None:
-          return False, None
-        path, ready, stop, dl_thread = stream
-
-        _stall_t0 = time.time()
-        while not ready.is_set():
-          if time.time() - _stall_t0 > 60:
-            print_warning("Buffering timed out (>60s). Check connection or retry.")
-            return False, None
-          time.sleep(0.15)
-      except Exception as e:
-        print_error(f"Gagal Streaming: {e}")
-        time.sleep(3)
-        return False, None
-
-    print_step("🚀 Launching mpv player...")
-    player.play_with_mpv(path, is_temp_file=True, cleanup=False)
-    stop.set()
-    dl_thread.join(timeout=10)
-    if os.path.exists(path):
-      os.remove(path)
-    return True, final_mega_url
-
-  else:
-    with make_progress_bar() as progress:
-      task = progress.add_task(
-        f"[{Palette.secondary}]🌀 Bypassing PixelDrain link...",
-        total=None,
-      )
-      final_target = pdrain.scrape(server_url)
-
-    if final_target:
-      print_step("🚀 Launching mpv player...")
-      return player.play_with_mpv(final_target, is_temp_file=is_temp), server_url
+      last_selected_server_name, server_url = selected
     else:
-      print_error("Stream resolution failed.")
-      return False, None
+      last_selected_server_name = "replay"
+
+    final_target = None
+    is_temp = False
+
+    if 'mega' in server_url.lower() or 'mega' in last_selected_server_name.lower():
+      final_mega_url = None
+      with make_progress_bar() as progress:
+        task = progress.add_task(
+          f"[{Palette.primary}]🔓 Resolving Mega link...",
+          total=None,
+        )
+
+        try:
+          resp = _SESSION.get(server_url, allow_redirects=True, timeout=15)
+          curr = resp.url
+          if "mega.nz" in curr and ("#" in curr or "#!" in curr):
+            final_mega_url = curr
+          else:
+            print_error("Redirect tidak mengarah ke Mega.")
+            server_url = None
+            continue
+        except Exception as e:
+          print_error(f"Requests Error: {e}")
+          time.sleep(3)
+          server_url = None
+          continue
+
+        if not final_mega_url:
+          print_error("Timeout: Gagal mendapatkan link Mega.")
+          server_url = None
+          continue
+
+        if "#!" in final_mega_url:
+          final_mega_url = final_mega_url.replace("#!", "file/").replace("!", "#", 1)
+
+        progress.update(task,
+          description=f"[{Palette.highlight}]📥 Buffering stream...")
+
+        # ponytail: sequential > parallel
+        try:
+          f_id = final_mega_url.split("file/")[1].split("#")[0]
+          stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id, console)
+          if stream is None:
+            server_url = None
+            continue
+          path, ready, stop, dl_thread = stream
+
+          _stall_t0 = time.time()
+          while not ready.is_set():
+            if time.time() - _stall_t0 > 60:
+              print_warning("Buffering timed out (>60s). Check connection or retry.")
+              server_url = None
+              continue
+            time.sleep(0.15)
+        except Exception as e:
+          print_error(f"Gagal Streaming: {e}")
+          time.sleep(3)
+          server_url = None
+          continue
+
+      print_step("🚀 Launching mpv player...")
+      player.play_with_mpv(path, is_temp_file=True, cleanup=False)
+      stop.set()
+      dl_thread.join(timeout=10)
+      if os.path.exists(path):
+        os.remove(path)
+      return True, final_mega_url
+
+    else:
+      with make_progress_bar() as progress:
+        task = progress.add_task(
+          f"[{Palette.secondary}]🌀 Bypassing PixelDrain link...",
+          total=None,
+        )
+        final_target = pdrain.scrape(server_url)
+
+      if final_target:
+        print_step("🚀 Launching mpv player...")
+        return player.play_with_mpv(final_target, is_temp_file=is_temp), server_url
+      else:
+        print_error("Stream tidak tersedia. Pilih resolusi lain.")
+        server_url = None
+        continue
 
 
 def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
