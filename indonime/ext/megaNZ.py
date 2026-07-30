@@ -92,6 +92,7 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
   stop = threading.Event()
   early_bytes = early_mb * 1024 * 1024
   _fmt = [None]  # mutable for closure: 'mp4' or 'mkv'
+  bytes_counter = [0]  # ponytail: shared counter for 0-100% progress
 
   def _download():
     try:
@@ -122,6 +123,7 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
             _first_dec = dec[:8]
             _fmt[0] = 'mp4' if b'\x66\x74\x79\x70' in _first_dec else 'mkv'
           downloaded += len(chunk)
+          bytes_counter[0] = downloaded  # ponytail: expose progress to caller
           if not ready.is_set() and downloaded >= early_bytes and _fmt[0] != 'mp4':
             ready.set()  # MKV can stream early
           if stop.is_set():
@@ -137,4 +139,4 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
   dl_thread = threading.Thread(target=_download, daemon=True)
   dl_thread.start()
 
-  return _TEMP_PATH, ready, stop, dl_thread
+  return _TEMP_PATH, ready, stop, dl_thread, bytes_counter, file_size

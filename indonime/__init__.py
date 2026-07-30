@@ -95,7 +95,8 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
       ).execute() if episode_title else 'play'
 
       if mode == 'download':
-        _download_episode(episode_title, episode_url, plugin, custom_style, server_url=server_url)
+        _download_episode(episode_title, episode_url, plugin, custom_style,
+          server_url=server_url, server_name=last_selected_server_name)
         return True, server_url
     else:
       last_selected_server_name = "replay"
@@ -135,9 +136,6 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
         if "#!" in final_mega_url:
           final_mega_url = final_mega_url.replace("#!", "file/").replace("!", "#", 1)
 
-        progress.update(task,
-          description=f"[{Palette.highlight}]📥 Buffering stream...")
-
         # ponytail: sequential > parallel
         try:
           f_id = final_mega_url.split("file/")[1].split("#")[0]
@@ -145,15 +143,23 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
           if stream is None:
             server_url = None
             continue
-          path, ready, stop, dl_thread = stream
+          path, ready, stop, dl_thread, bytes_counter, file_size = stream
+
+          progress.update(task,
+            description=f"[{Palette.highlight}]📥 Buffering stream...",
+            total=file_size)
 
           _stall_t0 = time.time()
           while not ready.is_set():
             if time.time() - _stall_t0 > 60:
               print_warning("Buffering timed out (>60s). Check connection or retry.")
               server_url = None
-              continue
+              break
+            progress.update(task, completed=bytes_counter[0])
             time.sleep(0.15)
+          progress.update(task, completed=bytes_counter[0])
+          if server_url is None:
+            continue
         except Exception as e:
           print_error(f"Gagal Streaming: {e}")
           time.sleep(3)
@@ -186,7 +192,7 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
 
 
 # ── Download episode ────────────────────────────
-def _download_episode(episode_title, episode_url, plugin, custom_style, server_url=None):
+def _download_episode(episode_title, episode_url, plugin, custom_style, server_url=None, server_name=None):
   # Sanitize filename first
   safe = "".join(c if c.isalnum() or c in " .-_()[]" else "_" for c in episode_title)[:100]
   downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
@@ -216,35 +222,60 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
     if not selected:
       return
 
-    _, server_url = selected
+    server_name, server_url = selected
 
-  if 'mega' in server_url.lower():
-    # Resolve Mega link
+  if 'mega' in server_url.lower() or (server_name and 'mega' in server_name.lower()):
+    # Follow redirect to get final Mega URL
     try:
       resp = _SESSION.get(server_url, allow_redirects=True, timeout=15)
       curr = resp.url
-      if not (("mega.nz" in curr or "mega.co.nz" in curr) and ("#" in curr or "#!" in curr)):
-        print_error("Redirect did not lead to Mega.")
-        return
-      if "#!" in curr:
-        curr = curr.replace("#!", "file/").replace("!", "#", 1)
     except Exception as e:
       print_error(f"Requests Error: {e}")
       return
 
-    try:
+    # Extract key — try server_url first, then resp.url (redirect may expose it)
+    megakey_raw = None
+    for u in (server_url, curr):
+      if "#" in u:
+        frag = u.split("#")[-1]
+        if "!" in frag:
+          frag = frag.split("!")[-1]
+        if frag:
+          megakey_raw = frag
+          break
+
+    # Extract file_id from redirected URL
+    f_id = None
+    if "file/" in curr:
       f_id = curr.split("file/")[1].split("#")[0]
-      stream = megaNZ.resolve_mega_file_stream(curr, f_id, console)
+    elif "#!" in curr:
+      f_id = curr.split("#!")[1].split("!")[0]
+    elif "file/" in server_url:
+      f_id = server_url.split("file/")[1].split("#")[0]
+    elif "#!" in server_url:
+      f_id = server_url.split("#!")[1].split("!")[0]
+
+    if not f_id:
+      print_error("Could not extract Mega file ID.")
+      return
+
+    # Reconstruct URL with key preserved — keep original domain
+    mega_domain = "mega.nz" if "mega.nz" in server_url else "mega.co.nz"
+    mega_url = f"https://{mega_domain}/file/{f_id}#{megakey_raw}"
+
+    try:
+      stream = megaNZ.resolve_mega_file_stream(mega_url, f_id, console)
       if stream is None:
         return
-      path, ready, stop, dl_thread = stream
+      path, ready, stop, dl_thread, bytes_counter, file_size = stream
 
-      # Wait for initial buffer
-      with make_progress_bar() as p:
-        task = p.add_task(f"[cyan]Downloading {safe}...", total=None)
+      # Wait for full download
+      with make_progress_bar(show_size=True) as p:
+        task = p.add_task(f"[cyan]Downloading {safe}...", total=file_size)
         while not ready.is_set():
           time.sleep(0.15)
-        # Now wait for full download
+          p.update(task, completed=bytes_counter[0])
+        p.update(task, completed=file_size)
         dl_thread.join(timeout=600)
         if dl_thread.is_alive():
           print_warning("Download timed out (>10 min).")
