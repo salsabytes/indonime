@@ -156,7 +156,6 @@ def make_postplay_actions(current_idx: int, total: int) -> list[str]:
     actions.append("◀  PREV")
   actions.append("↺  REPLAY")
   actions.append("⚙  QUALITY")
-  actions.append("⬇  DOWNLOAD")
   actions.append("✖  QUIT")
   return actions
 

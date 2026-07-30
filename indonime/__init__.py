@@ -4,7 +4,6 @@ import importlib
 import json
 import os
 import pkgutil
-import shutil
 import time
 
 from . import player
@@ -14,6 +13,7 @@ from .ui import (
   make_episode_page, make_postplay_actions, make_footer,
   make_progress_bar, styled_status, make_style, Palette,
 )
+
 from . import plugins
 import requests
 from InquirerPy import inquirer
@@ -168,108 +168,6 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None):
         print_error("Stream tidak tersedia. Pilih resolusi lain.")
         server_url = None
         continue
-
-
-# ── Download episode ────────────────────────────
-def _download_episode(episode_title, episode_url, plugin, custom_style):
-  # Resolve download links
-  with console.status(styled_status("🔍 Resolving download links...")):
-    dl_links = plugin.downloads(episode_url)
-
-  options = []
-  for res, servers in dl_links.items():
-    for s_name, s_url in servers.items():
-      if any(x in s_name.lower() for x in ['pdrain', 'pixeldrain', 'mega']):
-        label = f'[{res}] {s_name}'
-        options.append({'name': label, 'value': (label, s_url)})
-
-  if not options:
-    print_warning("No compatible download sources found.")
-    return
-
-  selected = inquirer.select(
-    message='📥  Select quality & server:',
-    choices=options,
-    style=custom_style,
-  ).execute()
-  if not selected:
-    return
-
-  _, server_url = selected
-
-  # Sanitize filename
-  safe = "".join(c if c.isalnum() or c in " .-_()[]" else "_" for c in episode_title)[:100]
-  downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
-  os.makedirs(downloads_dir, exist_ok=True)
-
-  if 'mega' in server_url.lower():
-    # Resolve Mega link
-    try:
-      resp = _SESSION.get(server_url, allow_redirects=True, timeout=15)
-      curr = resp.url
-      if not (("mega.nz" in curr or "mega.co.nz" in curr) and ("#" in curr or "#!" in curr)):
-        print_error("Redirect did not lead to Mega.")
-        return
-      if "#!" in curr:
-        curr = curr.replace("#!", "file/").replace("!", "#", 1)
-    except Exception as e:
-      print_error(f"Requests Error: {e}")
-      return
-
-    try:
-      f_id = curr.split("file/")[1].split("#")[0]
-      stream = megaNZ.resolve_mega_file_stream(curr, f_id, console)
-      if stream is None:
-        return
-      path, ready, stop, dl_thread = stream
-
-      # Wait for initial buffer
-      with make_progress_bar() as p:
-        task = p.add_task(f"[cyan]Downloading {safe}...", total=None)
-        while not ready.is_set():
-          time.sleep(0.15)
-        # Now wait for full download
-        dl_thread.join(timeout=600)
-        if dl_thread.is_alive():
-          print_warning("Download timed out (>10 min).")
-          stop.set()
-          return
-
-      # Copy to Downloads
-      dest = os.path.join(downloads_dir, f"{safe}.mp4")
-      shutil.copy2(path, dest)
-      if os.path.exists(path):
-        os.remove(path)
-
-    except Exception as e:
-      print_error(f"Download failed: {e}")
-      return
-
-  else:
-    # PixelDrain — download stream
-    try:
-      final_url = pdrain.scrape(server_url)
-      if not final_url:
-        print_error("Stream not available.")
-        return
-
-      resp = requests.get(final_url, stream=True, timeout=30)
-      total = int(resp.headers.get('content-length', 0))
-      dest = os.path.join(downloads_dir, f"{safe}.mp4")
-
-      with make_progress_bar(show_size=True) as p:
-        task = p.add_task(f"[cyan]Downloading {safe}...", total=total or None)
-        with open(dest, 'wb') as f:
-          for chunk in resp.iter_content(chunk_size=64*1024):
-            if chunk:
-              f.write(chunk)
-              if total:
-                p.update(task, advance=len(chunk))
-    except Exception as e:
-      print_error(f"Download failed: {e}")
-      return
-
-  print_success(f"✅ Downloaded: {dest}")
 
 
 def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
@@ -438,27 +336,6 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
     idx = selected
     _last_url = None
 
-    # Show play / download / back picker
-    ep_title = episode_list[idx]['title']
-    mode = inquirer.select(
-      message=f'📥  {ep_title[:50]}',
-      choices=[
-        {'name': ' ▶  Play', 'value': 'play'},
-        {'name': ' ⬇  Download', 'value': 'download'},
-        {'name': ' ↩  Back', 'value': 'back'},
-      ],
-      style=custom_style,
-      qmark='',
-    ).execute()
-
-    if mode == 'download':
-      _download_episode(ep_title, episode_list[idx]['url'], plugin, custom_style)
-      clean = True
-      break
-    elif mode == 'back':
-      clean = True
-      break
-
     while True:
       print_header("🎬 NOW PLAYING", "▶")
       ok, url = _play_episode(
@@ -499,12 +376,6 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
         continue
       elif cmd == '⚙  QUALITY':
         _last_url = None
-        continue
-      elif cmd == '⬇  DOWNLOAD':
-        _download_episode(
-          episode_list[idx]['title'], episode_list[idx]['url'],
-          plugin, custom_style)
-        time.sleep(2)
         continue
       else:
         return 'quit'
