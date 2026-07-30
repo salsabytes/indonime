@@ -84,19 +84,19 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
       last_selected_server_name, server_url = selected
 
       # After quality selection, offer Play or Download
-      mode = inquirer.select(
-        message=f'📥  What to do with {episode_title[:50]}',
-        choices=[
-          {'name': ' ▶  Play', 'value': 'play'},
-          {'name': ' ⬇  Download', 'value': 'download'},
-        ],
-        style=custom_style,
-        qmark='',
-      ).execute() if episode_title else 'play'
-
-      if mode == 'download':
-        _download_episode(episode_title, episode_url, plugin, custom_style, server_url=server_url)
-        return True, server_url
+      if episode_title:
+        mode = inquirer.select(
+          message=f'📥  {episode_title[:50]} — What to do?',
+          choices=[
+            {'name': ' ▶  Play now', 'value': 'play'},
+            {'name': ' ⬇  Download', 'value': 'download'},
+          ],
+          style=custom_style,
+          qmark='',
+        ).execute()
+        if mode == 'download':
+          _download_episode(episode_title, episode_url, plugin, custom_style)
+          return True, None
     else:
       last_selected_server_name = "replay"
 
@@ -186,37 +186,36 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
 
 
 # ── Download episode ────────────────────────────
-def _download_episode(episode_title, episode_url, plugin, custom_style, server_url=None):
-  # Sanitize filename first
+def _download_episode(episode_title, episode_url, plugin, custom_style):
+  # Resolve download links
+  with console.status(styled_status("🔍 Resolving download links...")):
+    dl_links = plugin.downloads(episode_url)
+
+  options = []
+  for res, servers in dl_links.items():
+    for s_name, s_url in servers.items():
+      if any(x in s_name.lower() for x in ['pdrain', 'pixeldrain', 'mega']):
+        label = f'[{res}] {s_name}'
+        options.append({'name': label, 'value': (label, s_url)})
+
+  if not options:
+    print_warning("No compatible download sources found.")
+    return
+
+  selected = inquirer.select(
+    message='📥  Select quality & server:',
+    choices=options,
+    style=custom_style,
+  ).execute()
+  if not selected:
+    return
+
+  _, server_url = selected
+
+  # Sanitize filename
   safe = "".join(c if c.isalnum() or c in " .-_()[]" else "_" for c in episode_title)[:100]
   downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
   os.makedirs(downloads_dir, exist_ok=True)
-
-  # Resolve server URL if not pre-resolved
-  if server_url is None:
-    with console.status(styled_status("🔍 Resolving download links...")):
-      dl_links = plugin.downloads(episode_url)
-
-    options = []
-    for res, servers in dl_links.items():
-      for s_name, s_url in servers.items():
-        if any(x in s_name.lower() for x in ['pdrain', 'pixeldrain', 'mega']):
-          label = f'[{res}] {s_name}'
-          options.append({'name': label, 'value': (label, s_url)})
-
-    if not options:
-      print_warning("No compatible download sources found.")
-      return
-
-    selected = inquirer.select(
-      message='📥  Select quality & server:',
-      choices=options,
-      style=custom_style,
-    ).execute()
-    if not selected:
-      return
-
-    _, server_url = selected
 
   if 'mega' in server_url.lower():
     # Resolve Mega link
