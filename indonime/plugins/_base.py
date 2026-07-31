@@ -1,13 +1,14 @@
-"""Cache, HTTP helpers, plugin base.
+"""Cache, HTTP helpers (stdlib urllib), plugin base.
 
 Plugin contract:
   search_anime(query: str) -> list[dict]  # [{title, url}]
   episodes(url: str)      -> list[dict]
   downloads(url: str)     -> dict        # {quality: {server: url}}
 """
+import json
 import sys
 import time
-import requests
+import urllib.request
 from bs4 import BeautifulSoup
 
 HEADERS = {
@@ -18,8 +19,36 @@ HEADERS = {
   ),
 }
 
-SESSION = requests.Session()
-SESSION.headers.update(HEADERS)
+# ── urllib helpers (replacement for requests) ──
+def _open(url, timeout, method=None, headers=None, data=None):
+  req = urllib.request.Request(url, data=data, headers=headers or HEADERS, method=method)
+  return urllib.request.urlopen(req, timeout=timeout)
+
+def http_get(url, timeout=15, headers=None):
+  """GET → (final_url, status, headers, body). Raises on HTTP/network error."""
+  with _open(url, timeout, headers=headers) as r:
+    return r.geturl(), r.status, r.headers, r.read()
+
+def http_head(url, timeout=10):
+  """HEAD → (status, content_type). Raises on HTTP/network error."""
+  with _open(url, timeout, method='HEAD') as r:
+    return r.status, r.headers.get('Content-Type', '')
+
+def http_post_json(url, payload, timeout=15):
+  """POST JSON → parsed JSON response. Raises on error."""
+  headers = {**HEADERS, 'Content-Type': 'application/json'}
+  with _open(url, timeout, method='POST', headers=headers,
+             data=json.dumps(payload).encode('utf-8')) as r:
+    return json.loads(r.read().decode('utf-8'))
+
+def http_stream(url, timeout=30):
+  """GET → open file-like response; caller reads chunks. Raises on error."""
+  return _open(url, timeout)
+
+def resolve_url(url, timeout=15):
+  """GET with redirects → final URL after all redirects."""
+  with _open(url, timeout) as r:
+    return r.geturl()
 
 _CACHE = {}
 _CACHE_AT = {}
@@ -47,9 +76,8 @@ def cache_clear():
 
 def fetch_soup(url, headers=HEADERS, timeout=15):
   """GET url → BeautifulSoup. Raises on failure."""
-  res = SESSION.get(url, headers=headers, timeout=timeout)
-  res.raise_for_status()
-  return BeautifulSoup(res.text, 'html.parser')
+  _, _, _, body = http_get(url, timeout=timeout, headers=headers)
+  return BeautifulSoup(body.decode('utf-8', 'replace'), 'html.parser')
 
 def safe(fb):
   """Catch-all decorator → fallback value on error."""

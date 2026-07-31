@@ -122,10 +122,6 @@ def print_warning(msg: str):
   _print_msg("⚠", Palette.warning, msg)
 
 
-def print_info(msg: str):
-  console.print(f"  [bold {Palette.muted}]ℹ[/bold {Palette.muted}]  [italic]{msg}[/italic]")
-
-
 def print_separator():
   """Faint horizontal rule."""
   console.print()
@@ -134,7 +130,7 @@ def print_separator():
 
 
 # ── Episode page ──────────────────────────
-def make_episode_page(episode_list, start=0) -> Group:
+def make_episode_page() -> Group:
   """Header + separator."""
   header = Padding(Columns([
     Text(" 🎬 ", style=Palette.primary),
@@ -189,7 +185,7 @@ def make_style():
 
 
 # ── Progress bar ──────────────────────────
-def make_progress_bar(transient=True, show_size=False):
+def make_progress_bar(show_size=False):
   """Styled download progress bar.
 
   Usage:
@@ -221,5 +217,5 @@ def make_progress_bar(transient=True, show_size=False):
     *columns,
     console=console,
     expand=True,
-    transient=transient,
+    transient=True,
   )

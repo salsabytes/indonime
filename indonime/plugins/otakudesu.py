@@ -1,5 +1,5 @@
 """Otakudesu provider — search, episodes, download links."""
-from ._base import HEADERS, fetch_soup, cached, safe
+from ._base import fetch_soup, cached, safe
 
 BASE = 'https://otakudesu.blog'
 

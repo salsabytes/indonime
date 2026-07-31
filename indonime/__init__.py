@@ -10,7 +10,7 @@ import time
 from . import player
 from .ui import (
   console, print_banner, print_header, print_step,
-  print_success, print_error, print_warning, print_info, print_separator,
+  print_success, print_error, print_warning, print_separator,
   make_episode_page, make_postplay_actions, make_footer,
   make_progress_bar, styled_status, make_style, Palette,
 )
@@ -18,29 +18,22 @@ from .ui import (
 from . import plugins
 from InquirerPy import inquirer
 from .ext import pdrain, megaNZ
-from .plugins._base import HEADERS, SESSION
+from .ext.megaNZ import _mega_fid, _mega_key
+from .plugins._base import http_stream, resolve_url
 
 # ── Compatible server prefixes ────────────────
 _COMPATIBLE = {'pdrain', 'pixeldrain', 'mega'}
 
+def _compatible_servers(dl_links):
+  """Flatten {quality: {server: url}} → inquirer choices for compatible servers."""
+  options = []
+  for res, servers in dl_links.items():
+    for s_name, s_url in servers.items():
+      if any(x in s_name.lower() for x in _COMPATIBLE):
+        label = f'[{res}] {s_name}'
+        options.append({'name': label, 'value': (label, s_url)})
+  return options
 
-def _mega_fid(url):
-  """Extract file ID from MEGA URL. Handles #! format. Returns (clean_url, f_id)."""
-  clean = url.replace("#!", "file/").replace("!", "#", 1) if "#!" in url else url
-  try:
-    return clean, clean.split("file/")[1].split("#")[0]
-  except IndexError:
-    return None, None
-
-
-def _mega_key(url):
-  """Extract decryption key from MEGA URL fragment."""
-  if "#" in url:
-    frag = url.split("#")[-1]
-    if "!" in frag:
-      return frag.split("!")[-1]
-    return frag
-  return None
 
 # ── History ─────────────────────────────────────
 _HISTORY_FILE = os.path.join(os.path.expanduser("~"), ".indonime", "history.json")
@@ -82,12 +75,7 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
       with console.status(styled_status("🔍 Resolving stream...")):
         dl_links = plugin.downloads(episode_url)
 
-      options = []
-      for res, servers in dl_links.items():
-        for s_name, s_url in servers.items():
-          if any(x in s_name.lower() for x in _COMPATIBLE):
-            label = f'[{res}] {s_name}'
-            options.append({'name': label, 'value': (label, s_url)})
+      options = _compatible_servers(dl_links)
 
       if not options:
         print_warning("No compatible servers found.")
@@ -120,7 +108,6 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
       last_selected_server_name = "replay"
 
     final_target = None
-    is_temp = False
 
     if 'mega' in server_url.lower() or 'mega' in last_selected_server_name.lower():
       final_mega_url = None
@@ -131,8 +118,7 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
         )
 
         try:
-          resp = SESSION.get(server_url, allow_redirects=True, timeout=15)
-          curr = resp.url
+          curr = resolve_url(server_url, timeout=15)
           if ("mega.nz" in curr or "mega.co.nz" in curr) and ("#" in curr or "#!" in curr):
             # link aslinya emang pake mega.co.nz, jangan di-replace!
             final_mega_url = curr
@@ -141,7 +127,7 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
             server_url = None
             continue
         except Exception as e:
-          print_error(f"Requests Error: {e}")
+          print_error(f"Network Error: {e}")
           time.sleep(3)
           server_url = None
           continue
@@ -198,7 +184,7 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
 
       if final_target:
         print_step("🚀 Launching mpv player...")
-        return player.play_with_mpv(final_target, is_temp_file=is_temp), server_url
+        return player.play_with_mpv(final_target), server_url
       else:
         print_error("Stream tidak tersedia. Pilih resolusi lain.")
         server_url = None
@@ -217,12 +203,7 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
     with console.status(styled_status("🔍 Resolving download links...")):
       dl_links = plugin.downloads(episode_url)
 
-    options = []
-    for res, servers in dl_links.items():
-      for s_name, s_url in servers.items():
-        if any(x in s_name.lower() for x in _COMPATIBLE):
-          label = f'[{res}] {s_name}'
-          options.append({'name': label, 'value': (label, s_url)})
+    options = _compatible_servers(dl_links)
 
     if not options:
       print_warning("No compatible download sources found.")
@@ -241,10 +222,9 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
   if 'mega' in server_url.lower() or (server_name and 'mega' in server_name.lower()):
     # Follow redirect to get final Mega URL
     try:
-      resp = SESSION.get(server_url, allow_redirects=True, timeout=15)
-      curr = resp.url
+      curr = resolve_url(server_url, timeout=15)
     except Exception as e:
-      print_error(f"Requests Error: {e}")
+      print_error(f"Network Error: {e}")
       return
 
     # Extract key + file_id — try server_url first, then redirect URL
@@ -297,15 +277,17 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
         print_error("Stream not available.")
         return
 
-      resp = SESSION.get(final_url, stream=True, timeout=30)
-      total = int(resp.headers.get('content-length', 0))
       dest = os.path.join(downloads_dir, f"{safe}.mp4")
+      with http_stream(final_url, timeout=30) as resp:
+        total = int(resp.headers.get('Content-Length', 0))
 
-      with make_progress_bar(show_size=True) as p:
-        task = p.add_task(f"[cyan]Downloading {safe}...", total=total or None)
-        with open(dest, 'wb') as f:
-          for chunk in resp.iter_content(chunk_size=64*1024):
-            if chunk:
+        with make_progress_bar(show_size=True) as p:
+          task = p.add_task(f"[cyan]Downloading {safe}...", total=total or None)
+          with open(dest, 'wb') as f:
+            while True:
+              chunk = resp.read(64 * 1024)
+              if not chunk:
+                break
               f.write(chunk)
               if total:
                 p.update(task, advance=len(chunk))
@@ -349,7 +331,7 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
     if clean:
       if show_banner:
         print_banner()
-      console.print(make_episode_page(episode_list, start=page * page_size))
+      console.print(make_episode_page())
       clean = False
 
     # ponytail: single inquirer.select — NEVER exits for page nav, zero flicker
@@ -362,21 +344,23 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
     )
 
     # Patch Enter handler: intercept nav items → update choices in-place
+    def _change_page(delta, event):
+      nonlocal page
+      p = page + delta
+      if 0 <= p < total_pages:
+        page = p
+        ctl = sel.content_control
+        ctl.choices = _page_choices(page)
+        ctl._selected_choice_index = 0
+        event.app.invalidate()
+
     original_enter = sel._handle_enter
     def _nav_enter(event):
-      nonlocal page
-      ctl = sel.content_control
-      val = ctl.selection['value']
-      if val == '__prev__' and page > 0:
-        page -= 1
-        ctl.choices = _page_choices(page)
-        ctl._selected_choice_index = 0
-        event.app.invalidate()
-      elif val == '__next__' and page + 1 < total_pages:
-        page += 1
-        ctl.choices = _page_choices(page)
-        ctl._selected_choice_index = 0
-        event.app.invalidate()
+      val = sel.content_control.selection['value']
+      if val == '__prev__':
+        _change_page(-1, event)
+      elif val == '__next__':
+        _change_page(1, event)
       else:
         original_enter(event)
     sel._handle_enter = _nav_enter
@@ -385,37 +369,20 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
 
     @sel.register_kb('left')
     def _(event):
-      nonlocal page
-      if page > 0:
-        page -= 1
-        ctl = sel.content_control
-        ctl.choices = _page_choices(page)
-        ctl._selected_choice_index = 0
-        event.app.invalidate()
+      _change_page(-1, event)
 
     @sel.register_kb('right')
     def _(event):
-      nonlocal page
-      if page + 1 < total_pages:
-        page += 1
-        ctl = sel.content_control
-        ctl.choices = _page_choices(page)
-        ctl._selected_choice_index = 0
-        event.app.invalidate()
+      _change_page(1, event)
 
     digit_buffer = ""
     last_digit_time = 0.0
 
-    def _handle_digit(event, digit):
-      nonlocal page, digit_buffer, last_digit_time
-      now = time.time()
-      if now - last_digit_time > 1.5:
-        digit_buffer = ""
-      digit_buffer += digit
-      last_digit_time = now
-      sel._message = f"▶  Select episode (go to: {digit_buffer}):"
+    def _jump_to(buf):
+      """Jump to episode number in buf (1-based) — no-op if invalid."""
+      nonlocal page
       try:
-        target_idx = int(digit_buffer) - 1
+        target_idx = int(buf) - 1
         if 0 <= target_idx < len(episode_list):
           target_page = target_idx // page_size
           page = target_page
@@ -427,6 +394,16 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
               break
       except ValueError:
         pass
+
+    def _handle_digit(event, digit):
+      nonlocal digit_buffer, last_digit_time
+      now = time.time()
+      if now - last_digit_time > 1.5:
+        digit_buffer = ""
+      digit_buffer += digit
+      last_digit_time = now
+      sel._message = f"▶  Select episode (go to: {digit_buffer}):"
+      _jump_to(digit_buffer)
       event.app.invalidate()
 
     def _bind_digit(d):
@@ -439,28 +416,16 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
 
     @sel.register_kb('backspace')
     def _(event):
-      nonlocal page, digit_buffer, last_digit_time
+      nonlocal digit_buffer, last_digit_time
       if digit_buffer:
         digit_buffer = digit_buffer[:-1]
         last_digit_time = time.time()
         if digit_buffer:
           sel._message = f"▶  Select episode (go to: {digit_buffer}):"
-          try:
-            target_idx = int(digit_buffer) - 1
-            if 0 <= target_idx < len(episode_list):
-              target_page = target_idx // page_size
-              page = target_page
-              ctl = sel.content_control
-              ctl.choices = _page_choices(page)
-              for index, ch in enumerate(ctl.choices):
-                if ch['value'] == target_idx:
-                  ctl._selected_choice_index = index
-                  break
-          except ValueError:
-            pass
+          _jump_to(digit_buffer)
         else:
           sel._message = '▶  Select episode:'
-        event.app.invalidate()
+      event.app.invalidate()
 
     selected = sel.execute()
 
@@ -637,32 +602,8 @@ def _tui_loop():
   print_success("Thanks for using Indonime! ~ Sayonara ~")
 
 
-def _download_mode(query, provider='otakudesu'):
-  """One-shot search → download → exit."""
-  custom_style = make_style()
-  print_banner()
-
-  try:
-    plugin = importlib.import_module(f'indonime.plugins.{provider}')
-  except Exception as e:
-    print_error(f"Plugin error: {e}")
-    input('[Press Enter]')
-    return
-
-  hit = _search_and_select(plugin, query, custom_style)
-  if hit is None:
-    print_warning("Nothing found.")
-    input('[Press Enter]')
-    return
-
-  selected_url, episode_list = hit
-  _episode_nav(episode_list, plugin, custom_style,
-    back_label='<< QUIT', show_banner=False,
-    anime_url=selected_url, mode='download')
-
-
-def _search_mode(query, provider='otakudesu'):
-  """One-shot search → play → exit."""
+def _one_shot_mode(query, provider, mode):
+  """One-shot search → play or download → exit."""
   custom_style = make_style()
   print_banner()
 
@@ -684,7 +625,7 @@ def _search_mode(query, provider='otakudesu'):
   _episode_nav(
     episode_list, plugin, custom_style,
     back_label='<< QUIT', show_banner=False,
-    anime_url=selected_url,
+    anime_url=selected_url, mode=mode,
   )
 
   if player.current_mpv_process and player.current_mpv_process.poll() is None:
@@ -712,9 +653,6 @@ def main():
   args = parser.parse_args()
 
   if args.mode == 'search' and args.query:
-    if args.download:
-      _download_mode(' '.join(args.query), args.provider)
-    else:
-      _search_mode(' '.join(args.query), args.provider)
+    _one_shot_mode(' '.join(args.query), args.provider, 'download' if args.download else 'play')
   else:
     _tui_loop()

@@ -1,5 +1,4 @@
 """MEGA stream decrypt — reused cipher + prefetch thread."""
-import os
 import random
 import sys
 import base64
@@ -7,7 +6,7 @@ import threading
 import queue
 import tempfile
 
-from ..plugins._base import SESSION
+from ..plugins._base import http_post_json, http_stream
 
 # ── AES via cryptography (hard dep) ──────────
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -17,6 +16,25 @@ from cryptography.hazmat.backends import default_backend
 def mega_base64_decode(data):
   data += '=' * (4 - len(data) % 4)
   return base64.urlsafe_b64decode(data)
+
+
+def _mega_fid(url):
+  """Extract file ID from MEGA URL. Handles #! format. Returns (clean_url, f_id)."""
+  clean = url.replace("#!", "file/").replace("!", "#", 1) if "#!" in url else url
+  try:
+    return clean, clean.split("file/")[1].split("#")[0]
+  except IndexError:
+    return None, None
+
+
+def _mega_key(url):
+  """Extract decryption key from MEGA URL fragment."""
+  if "#" in url:
+    frag = url.split("#")[-1]
+    if "!" in frag:
+      return frag.split("!")[-1]
+    return frag
+  return None
 
 
 def _parse_mega_url(url):
@@ -36,11 +54,11 @@ def _fetch_file_info(file_id):
   """MEGA API → (dl_link, file_size)."""
   try:
     seq = random.randint(0, 0xFFFFFFFF)
-    res = SESSION.post(
+    res = http_post_json(
       f"https://g.api.mega.co.nz/cs?id={seq}",
-      json=[{"a": "g", "g": 1, "p": file_id}],
+      [{"a": "g", "g": 1, "p": file_id}],
       timeout=15,
-    ).json()
+    )
     if isinstance(res[0], int):
       err = res[0]
       err_names = {-1:"internal",-2:"invalid",-3:"retry",-4:"rate-limited",
@@ -57,8 +75,9 @@ def _fetch_file_info(file_id):
 def _run_prefetch(resp, q, stop):
   """Fill chunk queue from stream response (runs in thread)."""
   try:
-    for chunk in resp.iter_content(chunk_size=1024 * 1024):
-      if stop.is_set():
+    while True:
+      chunk = resp.read(1024 * 1024)
+      if not chunk or stop.is_set():
         break
       q.put(chunk)
     q.put(None)
@@ -90,7 +109,7 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
 
   def _download():
     try:
-      response = SESSION.get(dl_link, stream=True)
+      response = http_stream(dl_link, timeout=30)
       chunk_queue = queue.Queue(maxsize=2)
       stop_prefetch = threading.Event()
 
