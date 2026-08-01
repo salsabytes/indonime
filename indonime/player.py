@@ -3,12 +3,9 @@ import sys
 import shutil
 import subprocess
 from pathlib import Path
-from .ui import console
-
-if sys.platform == "win32":
-  _MPV_DIR = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local')) / "Indonime" / "mpv"
-else:
-  _MPV_DIR = Path.home() / ".local" / "share" / "indonime" / "mpv"
+from tuiko import style
+from .ui import Palette
+from ._mpv_install import MPV_DIR, main as install_mpv
 
 current_mpv_process = None
 _mpv_path = None
@@ -35,7 +32,7 @@ def play_with_mpv(video_target, is_temp_file=False, cleanup=True):
       current_mpv_process = subprocess.Popen(mpv_args)
     return True
   except Exception as e:
-    console.print(f"[red]✘ Error: {e}[/red]")
+    print(style(f"✘ Error: {e}", Palette.error))
     return False
 
 
@@ -43,7 +40,7 @@ def _find_mpv():
   # Locate mpv binary. Cache first successful result.
   mpv_name = "mpv.com" if sys.platform == "win32" else "mpv"
 
-  appdata_mpv = (_MPV_DIR / mpv_name).resolve()
+  appdata_mpv = (MPV_DIR / mpv_name).resolve()
   if appdata_mpv.exists():
     return appdata_mpv
 
@@ -59,12 +56,11 @@ def _find_mpv():
   if in_path:
     return Path(in_path)
 
-  console.print("[yellow]⚠ mpv not found. Installing automatically...[/yellow]")
-  from ._mpv_install import main as install_mpv
+  print(style("⚠ mpv not found. Installing automatically...", Palette.warning))
   install_mpv()
 
   if appdata_mpv.exists():
     return appdata_mpv
 
-  console.print("[red]✘ mpv installation failed. Install manually.[/red]")
+  print(style("✘ mpv installation failed. Install manually.", Palette.error))
   return None

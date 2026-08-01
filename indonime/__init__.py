@@ -1,4 +1,4 @@
-"""search → select → play."""
+"""search → select → play — tuiko-powered (no rich / InquirerPy / pyfiglet)."""
 import argparse
 import importlib
 import json
@@ -9,14 +9,13 @@ import time
 
 from . import player
 from .ui import (
-  console, print_banner, print_header, print_step,
+  banner_header, make_progress_bar, print_banner, print_header, print_step,
   print_success, print_error, print_warning, print_separator,
-  make_episode_page, make_postplay_actions, make_footer,
-  make_progress_bar, styled_status, make_style, Palette,
+  make_postplay_actions, make_footer,
 )
 
 from . import plugins
-from InquirerPy import inquirer
+from tuiko import prompt, select, session
 from .ext import pdrain, megaNZ
 from .ext.megaNZ import _mega_fid, _mega_key
 from .plugins._base import http_stream, resolve_url
@@ -25,13 +24,12 @@ from .plugins._base import http_stream, resolve_url
 _COMPATIBLE = {'pdrain', 'pixeldrain', 'mega'}
 
 def _compatible_servers(dl_links):
-  """Flatten {quality: {server: url}} → inquirer choices for compatible servers."""
+  """Flatten {quality: {server: url}} → [(label, url)] for compatible servers."""
   options = []
   for res, servers in dl_links.items():
     for s_name, s_url in servers.items():
       if any(x in s_name.lower() for x in _COMPATIBLE):
-        label = f'[{res}] {s_name}'
-        options.append({'name': label, 'value': (label, s_url)})
+        options.append((f'[{res}] {s_name}', s_url))
   return options
 
 
@@ -68,11 +66,13 @@ def _check_history(anime_url, episode_list):
   return None
 
 # ── Play episode ────────────────────────────────
-def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_title=None):
+def _play_episode(episode_url, plugin, server_url=None, episode_title=None,
+                  key_source=None, out=None):
   """Resolve stream and play. Returns (success, server_url)."""
   while True:
     if server_url is None:
-      with console.status(styled_status("🔍 Resolving stream...")):
+      with make_progress_bar() as p:
+        p.add_task("🔍 Resolving stream...", total=None)
         dl_links = plugin.downloads(episode_url)
 
       options = _compatible_servers(dl_links)
@@ -81,28 +81,28 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
         print_warning("No compatible servers found.")
         return False, None
 
-      selected = inquirer.select(
-        message='📥  Select quality & server:',
-        choices=options,
-        style=custom_style,
-      ).execute()
-      if not selected:
+      labels = [o[0] for o in options]
+      sel = select("📥  Select quality & server:", labels,
+                   key_source=key_source, out=out, header=banner_header())
+      if sel is None:
         return False, None
-      last_selected_server_name, server_url = selected
+      last_selected_server_name, server_url = options[sel]
+
       # After quality selection, offer Play or Download
-      mode = inquirer.select(
-        message=f'📥  What to do with {episode_title[:50]}',
-        choices=[
-          {'name': ' ▶  Play', 'value': 'play'},
-          {'name': ' ⬇  Download', 'value': 'download'},
-        ],
-        style=custom_style,
-        qmark='',
-      ).execute() if episode_title else 'play'
+      if episode_title:
+        mode_idx = select("📥  What to do with " + episode_title[:50],
+                          [" ▶  Play", " ⬇  Download"],
+                          key_source=key_source, out=out, header=banner_header())
+        if mode_idx is None:
+          return False, None
+        mode = 'download' if mode_idx == 1 else 'play'
+      else:
+        mode = 'play'
 
       if mode == 'download':
-        _download_episode(episode_title, episode_url, plugin, custom_style,
-          server_url=server_url, server_name=last_selected_server_name)
+        _download_episode(episode_title, episode_url, plugin,
+                          server_url=server_url, server_name=last_selected_server_name,
+                          key_source=key_source, out=out)
         return True, server_url
     else:
       last_selected_server_name = "replay"
@@ -110,17 +110,11 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
     final_target = None
 
     if 'mega' in server_url.lower() or 'mega' in last_selected_server_name.lower():
-      final_mega_url = None
-      with make_progress_bar() as progress:
-        task = progress.add_task(
-          f"[{Palette.primary}]🔓 Resolving Mega link...",
-          total=None,
-        )
-
+      with make_progress_bar() as p:
+        p.add_task("🔓 Resolving Mega link...", total=None)
         try:
           curr = resolve_url(server_url, timeout=15)
-          if ("mega.nz" in curr or "mega.co.nz" in curr) and ("#" in curr or "#!" in curr):
-            # link aslinya emang pake mega.co.nz, jangan di-replace!
+          if ("mega.nz" in curr or "mega.co.nz" in curr) and "#" in curr:
             final_mega_url = curr
           else:
             print_error("Redirect tidak mengarah ke Mega.")
@@ -135,35 +129,34 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
         if not final_mega_url:
           print_error("Timeout: Gagal mendapatkan link Mega.")
           server_url = None
-          continue        # ponytail: sequential > parallel
+          continue
         try:
           final_mega_url, f_id = _mega_fid(final_mega_url)
           if f_id is None:
             print_error("Gagal extract file ID MEGA.")
             server_url = None
             continue
-          stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id, console)
+          stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id)
           if stream is None:
             server_url = None
             continue
           path, ready, stop, dl_thread, bytes_counter, file_size = stream
-
-          progress.update(task,
-            description=f"[{Palette.highlight}]📥 Buffering stream...")
-
-          _stall_t0 = time.time()
-          while not ready.is_set():
-            if time.time() - _stall_t0 > 60:
-              print_warning("Buffering timed out (>60s). Check connection or retry.")
-              server_url = None
-              break
-            time.sleep(0.15)
-          if server_url is None:
-            continue
         except Exception as e:
           print_error(f"Gagal Streaming: {e}")
           time.sleep(3)
           server_url = None
+          continue
+
+      with make_progress_bar() as p:
+        p.add_task("📥 Buffering stream...", total=None)
+        _stall_t0 = time.time()
+        while not ready.is_set():
+          if time.time() - _stall_t0 > 60:
+            print_warning("Buffering timed out (>60s). Check connection or retry.")
+            server_url = None
+            break
+          time.sleep(0.15)
+        if server_url is None:
           continue
 
       print_step("🚀 Launching mpv player...")
@@ -175,11 +168,8 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
       return True, final_mega_url
 
     else:
-      with make_progress_bar() as progress:
-        task = progress.add_task(
-          f"[{Palette.secondary}]🌀 Bypassing PixelDrain link...",
-          total=None,
-        )
+      with make_progress_bar() as p:
+        p.add_task("🌀 Bypassing PixelDrain link...", total=None)
         final_target = pdrain.scrape(server_url)
 
       if final_target:
@@ -192,7 +182,8 @@ def _play_episode(episode_url, plugin, custom_style, server_url=None, episode_ti
 
 
 # ── Download episode ────────────────────────────
-def _download_episode(episode_title, episode_url, plugin, custom_style, server_url=None, server_name=None):
+def _download_episode(episode_title, episode_url, plugin, server_url=None, server_name=None,
+                      key_source=None, out=None):
   # Sanitize filename first
   safe = "".join(c if c.isalnum() or c in " .-_()[]" else "_" for c in episode_title)[:100]
   downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
@@ -200,7 +191,8 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
 
   # Resolve server URL if not pre-resolved
   if server_url is None:
-    with console.status(styled_status("🔍 Resolving download links...")):
+    with make_progress_bar() as p:
+      p.add_task("🔍 Resolving download links...", total=None)
       dl_links = plugin.downloads(episode_url)
 
     options = _compatible_servers(dl_links)
@@ -209,15 +201,13 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
       print_warning("No compatible download sources found.")
       return
 
-    selected = inquirer.select(
-      message='📥  Select quality & server:',
-      choices=options,
-      style=custom_style,
-    ).execute()
-    if not selected:
+    labels = [o[0] for o in options]
+    sel = select("📥  Select quality & server:", labels,
+                 key_source=key_source, out=out, header=banner_header())
+    if sel is None:
       return
 
-    server_name, server_url = selected
+    server_name, server_url = options[sel]
 
   if 'mega' in server_url.lower() or (server_name and 'mega' in server_name.lower()):
     # Follow redirect to get final Mega URL
@@ -236,19 +226,18 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
       print_error("Could not extract Mega file ID.")
       return
 
-    # Reconstruct clean URL
-    mega_domain = "mega.nz" if "mega.nz" in server_url else "mega.co.nz"
-    mega_url = f"https://{mega_domain}/file/{f_id}#{megakey_raw}"
+    # Reconstruct clean URL — host gak dipakai downstream, cuma #key fragment yang penting
+    mega_url = f"https://mega.nz/file/{f_id}#{megakey_raw}"
 
     try:
-      stream = megaNZ.resolve_mega_file_stream(mega_url, f_id, console)
+      stream = megaNZ.resolve_mega_file_stream(mega_url, f_id)
       if stream is None:
         return
       path, ready, stop, dl_thread, bytes_counter, file_size = stream
 
       # Wait for full download
       with make_progress_bar(show_size=True) as p:
-        task = p.add_task(f"[cyan]Downloading {safe}...", total=file_size)
+        task = p.add_task(f"⬇ Downloading {safe}...", total=file_size)
         while not ready.is_set():
           time.sleep(0.15)
           p.update(task, completed=bytes_counter[0])
@@ -272,7 +261,9 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
   else:
     # PixelDrain — download stream
     try:
-      final_url = pdrain.scrape(server_url)
+      with make_progress_bar() as p:
+        p.add_task("🌀 Bypassing PixelDrain link...", total=None)
+        final_url = pdrain.scrape(server_url)
       if not final_url:
         print_error("Stream not available.")
         return
@@ -282,7 +273,7 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
         total = int(resp.headers.get('Content-Length', 0))
 
         with make_progress_bar(show_size=True) as p:
-          task = p.add_task(f"[cyan]Downloading {safe}...", total=total or None)
+          task = p.add_task(f"⬇ Downloading {safe}...", total=total or None)
           with open(dest, 'wb') as f:
             while True:
               chunk = resp.read(64 * 1024)
@@ -298,155 +289,33 @@ def _download_episode(episode_title, episode_url, plugin, custom_style, server_u
   print_success(f"✅ Downloaded: {dest}")
 
 
-def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
-                 show_banner=True, anime_url=None, mode='play'):
+def _episode_nav(episode_list, plugin, back_label='<< BACK',
+                 show_banner=True, anime_url=None, mode='play',
+                 key_source=None, out=None):
   """Episode pick → play → post-play loop. Returns 'back' or 'quit'."""
   idx = 0
   _last_url = None
-  page = 0
-  page_size = 12  # ponytail: 12 cukup biar banner gak kescroll
-  total_pages = max(1, (len(episode_list) + page_size - 1) // page_size)
   resume_idx = _check_history(anime_url, episode_list) if anime_url else None
-  clean = True  # full redraw: clear + banner
-
-  # ponytail: page choices builder — single source, used by both Enter & kb handlers
-  def _page_choices(p):
-    s = p * page_size
-    e = min(s + page_size, len(episode_list))
-    ch = []
-    if p > 0:
-      ch.append({'name': '  ◀  PREV PAGE', 'value': '__prev__', 'enabled': False})
-    if resume_idx is not None and (resume_idx < s or resume_idx >= e):
-      ch.append({'name': f'  ⏺  RESUME  EP{resume_idx+1:02d}', 'value': resume_idx, 'enabled': False})
-    for i in range(s, e):
-      prefix = '  ▶' if resume_idx == i else '   '
-      ch.append({'name': f'{prefix} EP{i+1:02d}  —  {episode_list[i]["title"][:50]}', 'value': i, 'enabled': False})
-    if p + 1 < total_pages:
-      ne = min(e + page_size, len(episode_list))
-      ch.append({'name': f'  ▶  NEXT PAGE (EP{e+1}–{ne})', 'value': '__next__', 'enabled': False})
-    ch.append({'name': f'  ↩  {back_label}', 'value': 'back', 'enabled': False})
-    return ch
+  header = banner_header() if show_banner else ()
 
   while True:
-    if clean:
-      if show_banner:
-        print_banner()
-      console.print(make_episode_page())
-      clean = False
+    labels = []
+    for i, ep in enumerate(episode_list):
+      mark = '▶' if resume_idx == i else ' '
+      labels.append(f"{mark} EP{i+1:02d}  —  {ep['title'][:50]}")
+    labels.append(f"↩  {back_label}")
 
-    # ponytail: single inquirer.select — NEVER exits for page nav, zero flicker
-    sel = inquirer.select(
-      message='▶  Select episode:',
-      choices=_page_choices(page),
-      style=custom_style,
-      qmark="",
-      cycle=True,
-    )
-
-    # Patch Enter handler: intercept nav items → update choices in-place
-    def _change_page(delta, event):
-      nonlocal page
-      p = page + delta
-      if 0 <= p < total_pages:
-        page = p
-        ctl = sel.content_control
-        ctl.choices = _page_choices(page)
-        ctl._selected_choice_index = 0
-        event.app.invalidate()
-
-    original_enter = sel._handle_enter
-    def _nav_enter(event):
-      val = sel.content_control.selection['value']
-      if val == '__prev__':
-        _change_page(-1, event)
-      elif val == '__next__':
-        _change_page(1, event)
-      else:
-        original_enter(event)
-    sel._handle_enter = _nav_enter
-    # update keybinding func ref before _keybinding_factory runs
-    sel.kb_func_lookup['answer'] = [{'func': _nav_enter}]
-
-    @sel.register_kb('left')
-    def _(event):
-      _change_page(-1, event)
-
-    @sel.register_kb('right')
-    def _(event):
-      _change_page(1, event)
-
-    digit_buffer = ""
-    last_digit_time = 0.0
-
-    def _jump_to(buf):
-      """Jump to episode number in buf (1-based) — no-op if invalid."""
-      nonlocal page
-      try:
-        target_idx = int(buf) - 1
-        if 0 <= target_idx < len(episode_list):
-          target_page = target_idx // page_size
-          page = target_page
-          ctl = sel.content_control
-          ctl.choices = _page_choices(page)
-          for index, ch in enumerate(ctl.choices):
-            if ch['value'] == target_idx:
-              ctl._selected_choice_index = index
-              break
-      except ValueError:
-        pass
-
-    def _handle_digit(event, digit):
-      nonlocal digit_buffer, last_digit_time
-      now = time.time()
-      if now - last_digit_time > 1.5:
-        digit_buffer = ""
-      digit_buffer += digit
-      last_digit_time = now
-      sel._message = f"▶  Select episode (go to: {digit_buffer}):"
-      _jump_to(digit_buffer)
-      event.app.invalidate()
-
-    def _bind_digit(d):
-      @sel.register_kb(d)
-      def _(event):
-        _handle_digit(event, d)
-
-    for d in "0123456789":
-      _bind_digit(d)
-
-    @sel.register_kb('backspace')
-    def _(event):
-      nonlocal digit_buffer, last_digit_time
-      if digit_buffer:
-        digit_buffer = digit_buffer[:-1]
-        last_digit_time = time.time()
-        if digit_buffer:
-          sel._message = f"▶  Select episode (go to: {digit_buffer}):"
-          _jump_to(digit_buffer)
-        else:
-          sel._message = '▶  Select episode:'
-      event.app.invalidate()
-
-    selected = sel.execute()
-
-    if selected is None or selected == 'back':
+    sel = select("▶  Select episode:", labels, search=True, fuzzy=True,
+                 key_source=key_source, out=out, header=header)
+    if sel is None or sel == len(labels) - 1:
       from .plugins._base import cache_clear
       cache_clear()
       return 'back'
 
-    # safety guards — keyboard Enter handler already catches __prev__/__next__ in-place
-    if selected == '__prev__':
-      if page > 0:
-        page -= 1
-      continue
-    if selected == '__next__':
-      if page + 1 < total_pages:
-        page += 1
-      continue
-
-    idx = selected
+    idx = sel
     if mode == 'download':
-      _download_episode(episode_list[idx]['title'], episode_list[idx]['url'], plugin, custom_style)
+      _download_episode(episode_list[idx]['title'], episode_list[idx]['url'], plugin,
+                        key_source=key_source, out=out)
       time.sleep(2)
       return 'back'
     _last_url = None
@@ -454,11 +323,11 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
     while True:
       print_header("🎬 NOW PLAYING", "▶")
       ok, url = _play_episode(
-        episode_list[idx]['url'], plugin, custom_style, server_url=_last_url,
-        episode_title=episode_list[idx]['title'])
+        episode_list[idx]['url'], plugin, server_url=_last_url,
+        episode_title=episode_list[idx]['title'],
+        key_source=key_source, out=out)
       if not ok:
         time.sleep(2)
-        clean = True
         break
       if anime_url:
         _save_history(anime_url, episode_list[idx]['url'])
@@ -467,26 +336,23 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
       print_separator()
 
       post_choices = make_postplay_actions(idx, len(episode_list))
-      cmd = inquirer.select(
-        message="🎮  Command:",
-        choices=post_choices,
-        style=custom_style,
-        qmark="",
-      ).execute()
+      cmd_idx = select("🎮  Command:", post_choices,
+                       key_source=key_source, out=out, header=header)
+      if cmd_idx is None:
+        return 'quit'
+      cmd = post_choices[cmd_idx]
 
       if cmd == '▶  NEXT':
         if idx + 1 < len(episode_list):
           idx += 1
           _last_url = None
           continue
-        clean = True
         break
       elif cmd == '◀  PREV':
         if idx > 0:
           idx -= 1
           _last_url = None
           continue
-        clean = True
         break
       elif cmd == '↺  REPLAY':
         continue
@@ -497,34 +363,101 @@ def _episode_nav(episode_list, plugin, custom_style, back_label='<< BACK',
         return 'quit'
 
 
+# ── Customizable shortcuts (search screen) ──
+# Map key → action. Actions handled in _tui_loop: 'provider', 'quit', 'abort'.
+# Keep keys non-printable (ctrl-...) so they don't hijack search-box typing.
+# ctrl-b because VS Code's terminal strips Alt and swallows Ctrl+P/Q (Quick
+# Open / Quick Access); b isn't intercepted by any terminal. Quit needs no
+# shortcut — escape / the ABORT sentinel already quit.
+_SHORTCUTS = {
+  "ctrl-b": "provider",
+}
+
+# ── Catalog cache ───────────────────────────
+_CATALOG_CACHE = {}  # plugin module name -> (ts, catalog)
+
+def _get_catalog(plugin):
+  """Catalog with a module-level cache that survives cache_clear() (no 845KB refetch on back)."""
+  name = getattr(plugin, '__name__', type(plugin).__name__)
+  now = time.time()
+  hit = _CATALOG_CACHE.get(name)
+  if hit and now - hit[0] < 600:
+    return hit[1]
+  with make_progress_bar() as p:
+    p.add_task("Loading catalog...", total=None)
+    catalog = plugin.list_all()
+  if catalog:
+    _CATALOG_CACHE[name] = (now, catalog)
+  return catalog
+
 # ── Search and select helper ──────────────
-def _search_and_select(plugin, query, custom_style):
-  """Search → pick title → fetch episode list. Returns (url, episode_list) or None."""
+def _catalog_select(plugin, key_source=None, out=None, shortcuts=None):
+  """Live fuzzy search over the full catalog — no Enter needed.
+
+  Returns (url, episode_list), a shortcut action string, 'abort' when the
+  user bails (escape / ABORT sentinel), or None when nothing is found.
+  """
   print_header("🔎 SEARCHING", "🔎")
-  with console.status(styled_status(f'Searching for "{query}"...')):
+  catalog = _get_catalog(plugin)
+
+  if not catalog:
+    return None
+
+  titles = [item['title'] for item in catalog] + ['↩  -- ABORT --']
+  sel = select("📺  Cari anime:", titles, search=True, fuzzy=True,
+               key_source=key_source, out=out, header=banner_header(),
+               shortcuts=shortcuts)
+
+  if isinstance(sel, str):
+    return sel  # shortcut action (e.g. 'provider', 'quit')
+  if sel is None or sel == len(titles) - 1:
+    return 'abort'  # user bailed (escape / ABORT sentinel) — back to search silently
+
+  selected = catalog[sel]
+  with make_progress_bar() as p:
+    p.add_task("Fetching episode list...", total=None)
+    episode_list = plugin.episodes(selected['url'])
+
+  if not episode_list:
+    return None
+
+  return selected['url'], episode_list
+
+def _search_and_select(plugin, query, key_source=None, out=None, shortcuts=None):
+  """Search → pick title → fetch episode list.
+
+  Returns (url, episode_list), a shortcut action string ('provider'/'quit'/...),
+  'abort' when the user bails, or None when nothing is found.
+
+  query=None → live fuzzy search over the cached full catalog (TUI mode).
+  query given → network search (one-shot CLI mode).
+  """
+  if query is None:
+    return _catalog_select(plugin, key_source=key_source, out=out, shortcuts=shortcuts)
+
+  print_header("🔎 SEARCHING", "🔎")
+  with make_progress_bar() as p:
+    p.add_task("Searching...", total=None)
     results = plugin.search_anime(query)
 
   if not results:
     return None
 
-  choices = [item['title'] for item in results] + ['-- ABORT --']
-  selected_title = inquirer.fuzzy(
-    message='📺  Select title:',
-    choices=choices,
-    style=custom_style,
-    cycle=True,
-  ).execute()
+  choices = [item['title'] for item in results] + ['↩  -- ABORT --']
+  sel = select("📺  Select title:", choices, search=True, fuzzy=True,
+               key_source=key_source, out=out, header=banner_header())
 
-  if selected_title == '-- ABORT --' or not selected_title:
+  if sel is None or sel == len(choices) - 1:
     return None
 
+  selected_title = choices[sel]
   selected_url = next(
     item['url'] for item in results
     if item['title'] == selected_title
   )
 
-  print_header("📋 EPISODES", "🎬")
-  with console.status(styled_status("Fetching episode list...")):
+  with make_progress_bar() as p:
+    p.add_task("Fetching episode list...", total=None)
     episode_list = plugin.episodes(selected_url)
 
   if not episode_list:
@@ -536,54 +469,27 @@ def _tui_loop():
   p_name = 'otakudesu'
   _last_plugin_name = None
   _plugin = None
-  custom_style = make_style()
   available_providers = [
     m.name for m in pkgutil.iter_modules(plugins.__path__)
     if not m.name.startswith('_')
   ]
 
   while True:
-    print_banner()
-
+    # Run straight into the anime search — no main menu.
     if p_name != _last_plugin_name:
       _plugin = importlib.import_module(f'indonime.plugins.{p_name}')
       _last_plugin_name = p_name
 
-    is_switching = False
-    try:
-      prompt = inquirer.text(
-        message='🔍  Search anime:',
-        qmark='',
-        instruction='[alt+p] switch provider  [esc] quit',
-        style=custom_style,
-        validate=lambda x: True if is_switching else len(x) > 0,
-      )
-      @prompt.register_kb('alt-p')
-      def _(event):
-        nonlocal is_switching
-        is_switching = True
-        event.app.exit(result='/switch')
-      @prompt.register_kb('escape')
-      def _(event):
-        event.app.exit(result=None)
-      result = prompt.execute()
-    except KeyboardInterrupt:
-      break
-
-    if result == '/switch':
-      new_p = inquirer.select(
-        message='📡  Select provider:',
-        choices=available_providers,
-        qmark='',
-        style=custom_style,
-      ).execute()
-      if new_p:
-        p_name = new_p
+    hit = _search_and_select(_plugin, None, shortcuts=_SHORTCUTS)
+    if isinstance(hit, str):
+      if hit == 'provider':
+        sel = select("📡  Select provider:", available_providers, header=banner_header())
+        if sel is not None:
+          p_name = available_providers[sel]
+      elif hit == 'quit' or hit == 'abort':
+        break  # quit shortcut, or escape/ABORT with no menu left → leave
+      # unknown action → just re-run the search
       continue
-    if not result:
-      break
-
-    hit = _search_and_select(_plugin, result, custom_style)
     if hit is None:
       print_warning("Nothing found.")
       time.sleep(2)
@@ -591,7 +497,7 @@ def _tui_loop():
 
     selected_url, episode_list = hit
     if _episode_nav(
-      episode_list, _plugin, custom_style,
+      episode_list, _plugin,
       back_label='<< BACK TO SEARCH', show_banner=True,
       anime_url=selected_url,
     ) == 'quit':
@@ -604,26 +510,25 @@ def _tui_loop():
 
 def _one_shot_mode(query, provider, mode):
   """One-shot search → play or download → exit."""
-  custom_style = make_style()
   print_banner()
 
   try:
     plugin = importlib.import_module(f'indonime.plugins.{provider}')
   except Exception as e:
     print_error(f"Plugin error: {e}")
-    input('[Press Enter]')
+    prompt("↩  [enter] to continue")
     return
 
-  hit = _search_and_select(plugin, query, custom_style)
+  hit = _search_and_select(plugin, query)
   if hit is None:
     print_warning("Nothing found.")
-    input('[Press Enter]')
+    prompt("↩  [enter] to continue")
     return
 
   selected_url, episode_list = hit
 
   _episode_nav(
-    episode_list, plugin, custom_style,
+    episode_list, plugin,
     back_label='<< QUIT', show_banner=False,
     anime_url=selected_url, mode=mode,
   )
@@ -652,7 +557,13 @@ def main():
   )
   args = parser.parse_args()
 
-  if args.mode == 'search' and args.query:
-    _one_shot_mode(' '.join(args.query), args.provider, 'download' if args.download else 'play')
-  else:
-    _tui_loop()
+  try:
+    with session():
+      if args.mode == 'search' and args.query:
+        _one_shot_mode(' '.join(args.query), args.provider, 'download' if args.download else 'play')
+      else:
+        _tui_loop()
+  except KeyboardInterrupt:
+    pass
+  finally:
+    print()

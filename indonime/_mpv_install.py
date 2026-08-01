@@ -3,15 +3,10 @@ import os
 import sys
 import shutil
 import subprocess
-import urllib.request
 from pathlib import Path
-from rich.console import Console
-from rich.progress import (
-  Progress, BarColumn, DownloadColumn,
-  TransferSpeedColumn, TimeRemainingColumn,
-)
-
-console = Console()
+from tuiko import progress, style
+from .plugins._base import http_stream
+from .ui import Palette
 
 if sys.platform == "win32":
   BASE = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local')) / "Indonime"
@@ -23,21 +18,19 @@ MPV_DIR = BASE / "mpv"
 def _download(url, dest, desc="Downloading"):
   dest = Path(dest)
   try:
-    resp = urllib.request.urlopen(url)
-    total = int(resp.headers.get("content-length", 0))
-    with Progress(
-      "[progress.description]{task.description}", BarColumn(),
-      DownloadColumn(), TransferSpeedColumn(), TimeRemainingColumn(),
-      console=console,
-    ) as p:
-      task = p.add_task(f"[cyan]{desc}", total=total)
-      with open(dest, "wb") as f:
-        for chunk in iter(lambda: resp.read(64 * 1024), b""):
-          f.write(chunk)
-          p.update(task, advance=len(chunk))
+    with http_stream(url, timeout=60) as resp:
+      total = int(resp.headers.get("Content-Length", 0))
+      with progress(desc, total=total or None) as up:
+        done = 0
+        with open(dest, "wb") as f:
+          for chunk in iter(lambda: resp.read(64 * 1024), b""):
+            f.write(chunk)
+            done += len(chunk)
+            if total:
+              up(done)
     return True
   except Exception as e:
-    console.print(f"[red]✘ Download failed: {e}[/red]")
+    print(style(f"✘ Download failed: {e}", Palette.error))
     return False
 
 
@@ -50,51 +43,50 @@ def _install_windows():
   if not _download(mpv_url, mpv_7z, "Downloading MPV"):
     return False
 
-  console.print("[cyan]Extracting...[/cyan]")
+  print(style("Extracting...", Palette.primary))
   MPV_DIR.mkdir(exist_ok=True)
 
-  for exe, args in [
-    (r"C:\Program Files\7-Zip\7z.exe", [r"C:\Program Files\7-Zip\7z.exe", "x", str(mpv_7z), f"-o{MPV_DIR}", "-y"]),
-  ]:
-    if os.path.exists(exe):
-      subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-      if (MPV_DIR / "mpv.exe").exists():
-        break
-  else:
-    console.print("[cyan]Downloading 7-Zip standalone extractor...[/cyan]")
+  z7 = r"C:\Program Files\7-Zip\7z.exe"
+  if os.path.exists(z7):
+    subprocess.run([z7, "x", str(mpv_7z), f"-o{MPV_DIR}", "-y"],
+             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+  if not (MPV_DIR / "mpv.exe").exists():
+    print(style("Downloading 7-Zip standalone extractor...", Palette.primary))
     if not _download("https://www.7-zip.org/a/7zr.exe", BASE / "7zr.exe"):
       return False
     subprocess.run([str(BASE / "7zr.exe"), "x", str(mpv_7z), f"-o{MPV_DIR}", "-y"],
              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    (BASE / "7zr.exe").unlink(missing_ok=True)  # ponytail: BCJ2 archive, needs 7z
+    (BASE / "7zr.exe").unlink(missing_ok=True)  # BCJ2 archive, needs 7z
 
   mpv_7z.unlink(missing_ok=True)
   ok = (MPV_DIR / "mpv.exe").exists()
-  console.print("[green]✓ mpv installed[/green]" if ok else "[red]✘ Extraction failed[/red]")
+  print(style("✓ mpv installed" if ok else "✘ Extraction failed",
+              Palette.success if ok else Palette.error))
   return ok
 
 
 def main():
-  console.print("[bold cyan]📺 Indonime - MPV Setup[/bold cyan]\n")
+  print(style("📺 Indonime - MPV Setup", 1, Palette.primary))
+  print()
 
   if shutil.which("mpv"):
-    console.print("[green]✓ mpv already in PATH[/green]")
+    print(style("✓ mpv already in PATH", Palette.success))
     return
 
   if sys.platform == "win32":
     ok = _install_windows()
   else:
-    console.print("[yellow]Install mpv manually: apt install mpv / brew install mpv[/yellow]")
+    print(style("Install mpv manually: apt install mpv / brew install mpv", Palette.warning))
     ok = False
 
   if not ok:
-    console.print("\n[yellow]Install mpv manually:[/yellow]")
-    console.print("  Windows: https://mpv.io/installation/")
-    console.print("  macOS:   brew install mpv")
-    console.print("  Linux:   apt install mpv")
+    print(style("Install mpv manually:", Palette.warning))
+    print("  Windows: https://mpv.io/installation/")
+    print("  macOS:   brew install mpv")
+    print("  Linux:   apt install mpv")
     sys.exit(1)
 
-  console.print("[bold green]✓ Setup complete![/bold green]")
+  print(style("✓ Setup complete!", 1, Palette.success))
 
 
 if __name__ == "__main__":

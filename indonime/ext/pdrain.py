@@ -1,5 +1,6 @@
 from urllib.parse import urlparse
-from ..ui import console
+from tuiko import status, style
+from ..ui import Palette
 from ..plugins._base import http_head, resolve_url
 
 
@@ -18,31 +19,31 @@ def _is_pixeldrain_url(url):
 def _is_playable(url):
   """HEAD check: file exists & returns video content."""
   try:
-    status, ctype = http_head(url, timeout=10)
-    return status == 200 and ctype.startswith("video/")
+    status_code, ctype = http_head(url, timeout=10)
+    return status_code == 200 and ctype.startswith("video/")
   except Exception:
     return False
 
 
 def scrape(url):
   try:
-    with console.status("[bold cyan]Bypassing Otakulinks...[/bold cyan]"):
-      final_url = resolve_url(url, timeout=15)
+    status("🌀 Bypassing Otakulinks...")
+    final_url = resolve_url(url, timeout=15)
 
     if _is_pixeldrain_url(final_url):
       file_id = final_url.split('/')[-1].split('?')[0]
       api_url = f"https://pixeldrain.com/api/file/{file_id}"
-      # ponytail: HEAD check prevents mpv launching into dead file (451 takedown)
+      # HEAD check prevents mpv launching into dead file (451 takedown)
       if not _is_playable(api_url):
-        console.print("[yellow]⚠ Stream tidak tersedia (mungkin kena takedown)[/yellow]")
+        print(style("⚠ Stream tidak tersedia (mungkin kena takedown)", Palette.warning))
         return None
       return api_url
     else:
-      console.print(f"[yellow]⚠ Redirect berakhir di: {final_url}[/yellow]")
+      print(style(f"⚠ Redirect berakhir di: {final_url}", Palette.warning))
       return None
 
   except Exception as e:
-    console.print(f"[red]✘ Network Error: {e}[/red]")
+    print(style(f"✘ Network Error: {e}", Palette.error))
     if _is_pixeldrain_url(url):
       file_id = url.split('/')[-1].split('?')[0]
       api_url = f"https://pixeldrain.com/api/file/{file_id}"

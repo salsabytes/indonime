@@ -11,10 +11,8 @@ license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4",
-    "InquirerPy",
-    "rich",
     "cryptography>=49.0.0",
-    "pyfiglet",
+    "tuiko>=0.1.0",
 ]
 
 [project.scripts]

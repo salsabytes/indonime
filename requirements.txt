@@ -1,5 +1,4 @@
 beautifulsoup4
-InquirerPy
-rich
 cryptography>=49.0.0
-pyfiglet
+rich
+tuiko>=0.1.1

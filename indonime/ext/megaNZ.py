@@ -6,6 +6,8 @@ import threading
 import queue
 import tempfile
 
+from tuiko import style
+from ..ui import Palette
 from ..plugins._base import http_post_json, http_stream
 
 # ── AES via cryptography (hard dep) ──────────
@@ -85,17 +87,17 @@ def _run_prefetch(resp, q, stop):
     q.put(e)
 
 
-def resolve_mega_file_stream(url, file_id, console, early_mb=2):
+def resolve_mega_file_stream(url, file_id, early_mb=2):
   """Download+decrypt MEGA file in background; return early once early_mb MB ready."""
   parsed = _parse_mega_url(url)
   if parsed is None:
-    console.print("[red]✘ Gagal parse key MEGA[/red]")
+    print(style("✘ Gagal parse key MEGA", Palette.error))
     return None
   k, iv = parsed
 
   info = _fetch_file_info(file_id)
   if info is None:
-    console.print("[red]✘ Gagal ambil API MEGA[/red]")
+    print(style("✘ Gagal ambil API MEGA", Palette.error))
     return None
   dl_link, file_size = info
 
@@ -143,7 +145,7 @@ def resolve_mega_file_stream(url, file_id, console, early_mb=2):
             break
         d.finalize()
     except Exception as e:
-      console.print(f"[red]✘ Mega Stream Error: {e}[/red]")
+      print(style(f"✘ Mega Stream Error: {e}", Palette.error))
       ready.set()
       return
 

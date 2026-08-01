@@ -16,6 +16,23 @@ def search_anime(query):
 
 
 @safe([])
+@cached(ttl=600)
+def list_all():
+  """Full catalog — live fuzzy search source."""
+  soup = fetch_soup(f'{BASE}/anime-list/')
+  seen = set()
+  out = []
+  for a in soup.find_all('a', href=True):
+    href = a['href']
+    if '/anime/' not in href or href in seen:
+      continue
+    seen.add(href)
+    url = href if href.startswith('http') else BASE + href
+    out.append({'title': a.get_text(' ', strip=True), 'url': url})
+  return out
+
+
+@safe([])
 @cached(ttl=300)
 def episodes(url):
   soup = fetch_soup(url)

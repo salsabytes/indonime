@@ -3,13 +3,14 @@
 import base64
 import http.server
 import inspect
+import io
 import json
 import os
 import sys
 import threading
 import unittest
 import urllib.error
-from types import SimpleNamespace
+from contextlib import nullcontext
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -66,27 +67,6 @@ BASE = f"http://127.0.0.1:{_SRV.server_address[1]}"
 
 def tearDownModule():
   _SRV.shutdown()
-
-# ── fake InquirerPy select: exercises _episode_nav kb wiring without a TTY ──
-class FakeSelect:
-  def __init__(self, result="back", **kw):
-    self._result = result
-    self.content_control = SimpleNamespace(selection={"value": None}, choices=[], _selected_choice_index=0)
-    self.kb_func_lookup = {}
-    self._message = ""
-    self._handle_enter = None
-
-  def register_kb(self, name):
-    def deco(fn):
-      self.kb_func_lookup[name] = fn
-      return fn
-    return deco
-
-  def execute(self):
-    return self._result
-
-class FakeEvent:
-  app = SimpleNamespace(invalidate=lambda: None)
 
 class TestHttpLayer(unittest.TestCase):
   def test_get(self):
@@ -147,57 +127,183 @@ class TestMegaParser(unittest.TestCase):
 class TestCompatibleServers(unittest.TestCase):
   def test_filter(self):
     dl = {"1080p": {"PixelDrain": "https://pd/x", "MEGA": "https://mega/x", "GoFile": "https://gf/x"}}
-    self.assertEqual([o["name"] for o in indonime._compatible_servers(dl)],
+    self.assertEqual([o[0] for o in indonime._compatible_servers(dl)],
                      ["[1080p] PixelDrain", "[1080p] MEGA"])
 
 class TestEpisodeNav(unittest.TestCase):
-  # 15 eps / 2 pages: exercises enter-patch, _change_page, _jump_to, backspace
+  # 15 eps: exercises tuiko-driven episode pick + post-play loop (no TTY, key_source)
   EPS = [{"title": f"Ep {i}", "url": f"u{i}"} for i in range(15)]
 
-  def _nav(self):
-    captured = []
-    orig = indonime.inquirer.select
-    indonime.inquirer.select = lambda **kw: (captured.append(FakeSelect("back", **kw)) or captured[-1])
-    try:
-      self.assertEqual(indonime._episode_nav(self.EPS, plugin=None, custom_style=None, show_banner=False), "back")
-    finally:
-      indonime.inquirer.select = orig
-    return captured[-1]
+  def _nav(self, keys):
+    out = io.StringIO()
+    return indonime._episode_nav(self.EPS, plugin=None, show_banner=False,
+                                 key_source=iter(keys), out=out)
 
-  def test_next_prev_and_jump(self):
-    sel = self._nav()
-    ctl = sel.content_control
-    ctl.selection = {"value": "__next__"}
-    sel._handle_enter(FakeEvent())
-    vals = [ch["value"] for ch in ctl.choices]
-    self.assertIn("__prev__", vals)
-    self.assertNotIn("__next__", vals)
-    sel.kb_func_lookup["left"](FakeEvent())
-    sel.kb_func_lookup["3"](FakeEvent())
-    self.assertEqual(ctl._selected_choice_index, 2)
-    sel.kb_func_lookup["backspace"](FakeEvent())
-    self.assertEqual(sel._message, "▶  Select episode:")
+  def test_back_on_escape(self):
+    self.assertEqual(self._nav(["escape"]), "back")
+
+  def test_select_first_then_quit(self):
+    # enter picks EP1 → post-play: QUIT is index 3 (NEXT/REPLAY/QUALITY/QUIT)
+    orig = indonime._play_episode
+    indonime._play_episode = lambda *a, **k: (True, None)
+    try:
+      self.assertEqual(self._nav(["enter", "down", "down", "down", "enter"]), "quit")
+    finally:
+      indonime._play_episode = orig
+
+  def test_postplay_next_loops(self):
+    # EP1 (enter) → NEXT (enter) → EP2 → QUIT (down x4, enter)
+    calls = []
+    orig = indonime._play_episode
+    indonime._play_episode = lambda *a, **k: calls.append(a) or (True, None)
+    try:
+      self.assertEqual(self._nav(["enter", "enter", "down", "down", "down", "down", "enter"]), "quit")
+      self.assertEqual([c[0] for c in calls], ["u0", "u1"])
+    finally:
+      indonime._play_episode = orig
 
 class TestMainDispatch(unittest.TestCase):
   def test_modes(self):
     calls = []
     indonime._one_shot_mode = lambda q, p, m: calls.append((q, p, m))
     indonime._tui_loop = lambda: calls.append(("tui",))
-    sys.argv = ["indonime", "search", "naruto", "shippuden", "-d"]
-    indonime.main()
-    self.assertEqual(calls[-1], ("naruto shippuden", "otakudesu", "download"))
-    sys.argv = ["indonime", "search", "naruto", "-p", "anoboy"]
-    indonime.main()
-    self.assertEqual(calls[-1], ("naruto", "anoboy", "play"))
-    sys.argv = ["indonime"]
-    indonime.main()
-    self.assertEqual(calls[-1], ("tui",))
+    # session() needs a real TTY (termios raw mode) — neutralize it in tests
+    orig_session = indonime.session
+    indonime.session = lambda: nullcontext()
+    try:
+      sys.argv = ["indonime", "search", "naruto", "shippuden", "-d"]
+      indonime.main()
+      self.assertEqual(calls[-1], ("naruto shippuden", "otakudesu", "download"))
+      sys.argv = ["indonime", "search", "naruto", "-p", "anoboy"]
+      indonime.main()
+      self.assertEqual(calls[-1], ("naruto", "anoboy", "play"))
+      sys.argv = ["indonime"]
+      indonime.main()
+      self.assertEqual(calls[-1], ("tui",))
+    finally:
+      indonime.session = orig_session
 
 class TestDeletedSymbols(unittest.TestCase):
   def test_gone(self):
     self.assertFalse(hasattr(ui, "print_info"))
+    self.assertFalse(hasattr(ui, "make_style"))
+    self.assertFalse(hasattr(indonime, "inquirer"))
     self.assertFalse(hasattr(indonime, "_search_mode"))
     self.assertFalse(hasattr(indonime, "_download_mode"))
+
+class TestCatalogParsing(unittest.TestCase):
+  """list_all() parses the anime-list pages without network (patched fetch_soup)."""
+  def setUp(self):
+    from indonime.plugins._base import cache_clear
+    cache_clear()
+    from indonime.plugins import anoboy, otakudesu
+    self._orig = {'anoboy': anoboy.fetch_soup, 'otakudesu': otakudesu.fetch_soup}
+
+  def tearDown(self):
+    from indonime.plugins import anoboy, otakudesu
+    anoboy.fetch_soup = self._orig['anoboy']
+    otakudesu.fetch_soup = self._orig['otakudesu']
+
+  def test_otakudesu(self):
+    from bs4 import BeautifulSoup
+    from indonime.plugins import otakudesu
+    html = '''<ul>
+      <li><a href="https://otakudesu.blog/anime/naruto-sub-indo/">Naruto Shippuden</a></li>
+      <li><a href="https://otakudesu.blog/anime/one-piece-sub-indo/">One Piece</a></li>
+      <li><a href="https://otakudesu.blog/">Home</a></li>
+    </ul>'''
+    otakudesu.fetch_soup = lambda url: BeautifulSoup(html, 'html.parser')
+    out = otakudesu.list_all()
+    self.assertEqual(out, [
+      {'title': 'Naruto Shippuden', 'url': 'https://otakudesu.blog/anime/naruto-sub-indo/'},
+      {'title': 'One Piece', 'url': 'https://otakudesu.blog/anime/one-piece-sub-indo/'},
+    ])
+
+  def test_cache_separated_per_plugin(self):
+    # regression: otakudesu.list_all and anoboy.list_all must NOT share a cache
+    # slot (cached() key includes fn.__module__) — no cache_clear in between
+    from bs4 import BeautifulSoup
+    from indonime.plugins import otakudesu, anoboy
+    otakudesu.fetch_soup = lambda url: BeautifulSoup(
+      '<ul><li><a href="https://otakudesu.blog/anime/naruto-sub-indo/">Naruto</a></li></ul>',
+      'html.parser')
+    anoboy.fetch_soup = lambda url: BeautifulSoup(
+      '<ul><li><a href="/anime/spy-x-family/">Spy x Family</a></li></ul>',
+      'html.parser')
+    o = otakudesu.list_all()
+    a = anoboy.list_all()  # must NOT return otakudesu's cached catalog
+    self.assertEqual(o[0]['url'], 'https://otakudesu.blog/anime/naruto-sub-indo/')
+    self.assertEqual(a[0]['url'], 'https://anoboy7.com/anime/spy-x-family/')
+
+  def test_anoboy_relative_urls(self):
+    from bs4 import BeautifulSoup
+    from indonime.plugins import anoboy
+    html = '''<div class="anime-list"><ul>
+      <li><a href="/anime/oshi-no-ko-2nd-season/">Oshi no Ko 2nd Season</a></li>
+      <li><a href="/anime/spy-x-family/">Spy x Family</a></li>
+      <li><a href="/">Home</a></li>
+    </ul></div>'''
+    anoboy.fetch_soup = lambda url: BeautifulSoup(html, 'html.parser')
+    out = anoboy.list_all()
+    self.assertEqual(out, [
+      {'title': 'Oshi no Ko 2nd Season', 'url': 'https://anoboy7.com/anime/oshi-no-ko-2nd-season/'},
+      {'title': 'Spy x Family', 'url': 'https://anoboy7.com/anime/spy-x-family/'},
+    ])
+
+class TestCatalogSelect(unittest.TestCase):
+  """Live fuzzy search: type keys → filter catalog → enter picks the match."""
+  class _Plugin:
+    CATALOG = [
+      {'title': 'Naruto Shippuden', 'url': 'u1'},
+      {'title': 'One Piece', 'url': 'u2'},
+      {'title': 'Spy x Family', 'url': 'u3'},
+      {'title': 'Kimetsu no Yaiba', 'url': 'u4'},
+    ]
+    def list_all(self):
+      return self.CATALOG
+    def episodes(self, url):
+      return [{'title': 'EP1', 'url': url + '/ep1'}]
+    def search_anime(self, query):
+      return [self.CATALOG[0]]
+
+  def _pick(self, keys):
+    out = io.StringIO()
+    return indonime._catalog_select(self._Plugin(), key_source=iter(keys), out=out)
+
+  def test_live_fuzzy_no_enter_needed(self):
+    # 'sxf' fuzzy-matches "Spy x Family" (subsequence), then enter picks it
+    hit = self._pick(['s', 'x', 'f', 'enter'])
+    self.assertEqual(hit, ('u3', [{'title': 'EP1', 'url': 'u3/ep1'}]))
+
+  def test_escape_aborts(self):
+    self.assertEqual(self._pick(['escape']), 'abort')
+
+  def test_abort_sentinel(self):
+    # 4 items + ABORT = 5 rows on one page; scroll to last (ABORT) and enter
+    hit = self._pick(['down', 'down', 'down', 'down', 'enter'])
+    self.assertEqual(hit, 'abort')
+
+  def _pick_with_shortcuts(self, keys):
+    out = io.StringIO()
+    return indonime._catalog_select(self._Plugin(), key_source=iter(keys), out=out,
+                                    shortcuts=indonime._SHORTCUTS)
+
+  def test_provider_shortcut(self):
+    self.assertEqual(self._pick_with_shortcuts(['ctrl-b']), 'provider')
+
+  def test_unknown_shortcut_action_passthrough(self):
+    out = io.StringIO()
+    res = indonime._catalog_select(self._Plugin(), key_source=iter(['ctrl-t']), out=out,
+                                   shortcuts={'ctrl-t': 'whatever'})
+    self.assertEqual(res, 'whatever')
+
+  def test_search_and_select_one_shot(self):
+    # one-shot CLI path (query given) — regression: used to call the removed
+    # tuiko progress() and would NameError at runtime
+    out = io.StringIO()
+    hit = indonime._search_and_select(self._Plugin(), "naruto",
+                                      key_source=iter(['enter']), out=out)
+    self.assertEqual(hit, ('u1', [{'title': 'EP1', 'url': 'u1/ep1'}]))
 
 if __name__ == "__main__":
   unittest.main()

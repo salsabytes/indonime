@@ -57,7 +57,7 @@ def cached(ttl=300):
   """Memoize with TTL seconds. Skips caching empty results."""
   def dec(fn):
     def wrap(*args, **kwargs):
-      key = (fn.__name__, args, tuple(sorted(kwargs.items())))
+      key = (fn.__module__, fn.__name__, args, tuple(sorted(kwargs.items())))
       now = time.time()
       val = _CACHE.get(key)
       if val is not None and now - _CACHE_AT.get(key, 0) < ttl:

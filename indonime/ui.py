@@ -1,109 +1,66 @@
-"""Banner, tables, styles, components."""
-from InquirerPy.utils import get_style
-from rich.console import Console
-from rich.text import Text
-from rich.panel import Panel
-import pyfiglet
-from rich.rule import Rule
-from rich.progress import (
-  Progress, BarColumn, TextColumn, TimeElapsedColumn,
-  SpinnerColumn, TaskProgressColumn, DownloadColumn,
-)
-from rich.columns import Columns
-from rich.align import Align
-from rich.box import ROUNDED
-from rich.padding import Padding
-from rich.console import Group
-from rich.style import Style
+"""Banner, headers, status messages — tuiko-based (no rich / InquirerPy / pyfiglet)."""
+import sys
 
-console = Console()
+from tuiko import grad, sep, strip_ansi, style, term_width, theme
+from rich.console import Console
+from rich.progress import (BarColumn, DownloadColumn, Progress, SpinnerColumn,
+                           TaskProgressColumn, TextColumn, TimeElapsedColumn)
+
+# Windows pipes default to cp1252 which can't encode emoji — force UTF-8 so
+# plain print() never crashes (real console + tuiko frames are unaffected).
+for _s in (sys.stdout, sys.stderr):
+  if hasattr(_s, "reconfigure"):
+    try:
+      _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+      pass
 
 class Palette:
-  primary   = "#00d4ff"   # cyan electric
-  secondary = "#a855f7"   # purple
-  accent    = "#f97316"   # orange
-  success   = "#22c55e"   # green
-  error     = "#ef4444"   # red
-  warning   = "#eab308"   # yellow
-  muted     = "#6b7280"   # gray
-  border    = "#374151"   # dark gray
-  text      = "#d1d5db"   # light gray
-  dim       = "#4b5563"   # dim gray
-  surface   = "#1f2937"   # dark surface
-  highlight = "#2dd4bf"   # teal
+  primary   = 117   # sky cyan
+  secondary = 213   # bright pink/purple
+  accent    = 220   # gold
+  success   = 114   # green
+  error     = 203   # red
+  warning   = 214   # orange
+  muted     = 245
+  border    = 141
+  text      = 255
+  dim       = 239
+  surface   = 236
+  highlight = 122   # teal
 
-BANNER_FONT = "big"  # ponytail: swap font string to change style
-
-def _pyfiglet_gradient(text: str, font: str = BANNER_FONT) -> Text:
-  """Pyfiglet + Rich gradient (3-color cyan→teal→purple)."""
-  colors = ["#00d4ff", "#2dd4bf", "#a855f7"]
-  art = pyfiglet.figlet_format(text, font=font)
-  lines = art.splitlines()
-  result = Text()
-  for li, line in enumerate(lines):
-    if not line:
-      result.append("\n")
-      continue
-    n = len(line)
-    for ci, ch in enumerate(line):
-      if ch == " ":
-        result.append(" ")
-      else:
-        t = ci / max(n - 1, 1)
-        seg = t * (len(colors) - 1)
-        seg_i = min(int(seg), len(colors) - 2)
-        c1, c2 = colors[seg_i], colors[seg_i + 1]
-        ft = seg - seg_i
-        r = int(int(c1[1:3], 16) + (int(c2[1:3], 16) - int(c1[1:3], 16)) * ft)
-        g = int(int(c1[3:5], 16) + (int(c2[3:5], 16) - int(c1[3:5], 16)) * ft)
-        b = int(int(c1[5:7], 16) + (int(c2[5:7], 16) - int(c1[5:7], 16)) * ft)
-        result.append(ch, style=f"#{r:02x}{g:02x}{b:02x}")
-    if li < len(lines) - 1:
-      result.append("\n")
-  return result
+BANNER_TITLE = "INDONIME"
+BANNER_SUB = "Subtitle Indonesia Anime Searcher — cari · tonton · nikmati"
 
 
-_BANNER_PANEL = None
+def banner_header():
+  """Header tuple for tuiko select/prompt frames (gradient title + subtitle)."""
+  return (BANNER_TITLE, style(f"  {BANNER_SUB}", theme.muted))
+
 
 def print_banner():
-  """Clear screen and show gradient banner."""
-  global _BANNER_PANEL
-  console.clear()
-  if _BANNER_PANEL is None:
-    gradient = _pyfiglet_gradient("INDONIME")
-    subtitle = Text("  Subtitle Indonesia Anime Searcher", style=f"italic {Palette.muted}")
-    content = Text.assemble(gradient, "\n", subtitle)
-    _BANNER_PANEL = Panel(
-      Align.center(content),
-      box=ROUNDED,
-      border_style=Palette.primary,
-      padding=(1, 3),
-      subtitle="✦  cari · tonton · nikmati  ✦",
-      subtitle_align="center",
-    )
-  console.print(_BANNER_PANEL)
+  """Centered gradient banner outside interactive frames."""
+  w = term_width()
+  title = grad(f"  {BANNER_TITLE}  ", theme.grad)
+  print()
+  print(" " * max((w - len(strip_ansi(title))) // 2, 0) + title)
+  print(" " * max((w - len(BANNER_SUB)) // 2, 0) + style(BANNER_SUB, Palette.muted))
+  print()
 
 
 # ── Section header ────────────────────────
 def print_header(title: str, icon: str = ""):
   """Styled section header."""
-  console.print()
-  label = f"  {icon}  {title}" if icon else f"    {title}"
-  console.print(Rule(title=Text(label, style=f"bold {Palette.accent}"), style=Palette.border))
-  console.print()
+  print()
+  label = f"  {icon}  {title}" if icon else f"  {title}"
+  print(style(label, 1, Palette.accent))
+  print(sep(max(term_width() - 2, 10), color=Palette.border))
+  print()
 
 
 # ── Status messages ───────────────────────
-def styled_status(message: str) -> str:
-  """Styled spinner message."""
-  return f"[bold {Palette.primary}]{message}[/bold {Palette.primary}]"
-
-
-def _print_msg(icon: str, color: str, msg: str, dim=False):
-  if dim:
-    console.print(f"  [bold {color}]{icon}[/bold {color}]  [dim]{msg}[/dim]")
-  else:
-    console.print(f"  [bold {color}]{icon}[/bold {color}]  {msg}")
+def _print_msg(icon: str, color: int, msg: str, dim=False):
+  print(f"  {style(icon, 1, color)}  {style(msg, Palette.dim) if dim else style(msg, Palette.text)}")
 
 
 def print_step(msg: str):
@@ -124,22 +81,9 @@ def print_warning(msg: str):
 
 def print_separator():
   """Faint horizontal rule."""
-  console.print()
-  console.print(Rule(style=Palette.surface))
-  console.print()
-
-
-# ── Episode page ──────────────────────────
-def make_episode_page() -> Group:
-  """Header + separator."""
-  header = Padding(Columns([
-    Text(" 🎬 ", style=Palette.primary),
-    Text("📋 EPISODES", style=Style(color=Palette.primary, bold=True)),
-  ], padding=(0, 1)), pad=(1, 0, 0, 0))
-  return Group(
-    header,
-    Rule(style=Palette.border),
-  )
+  print()
+  print(sep(max(term_width() - 2, 10), color=Palette.surface))
+  print()
 
 
 # ── Post-play menu ────────────────────────
@@ -159,63 +103,32 @@ def make_postplay_actions(current_idx: int, total: int) -> list[str]:
 # ── Footer ─────────────────────────────────
 def make_footer():
   """Clean centered footer."""
-  console.print()
-  text = Text.assemble(
-    ("  ✦  ", f"italic dim {Palette.dim}"),
-    ("Indonime", f"italic bold {Palette.secondary}"),
-    ("  —  made with love for anime fans  ✦", f"italic dim {Palette.dim}"),
-  )
-  console.print(Align.center(text))
+  print()
+  w = term_width()
+  line = f"  ✦  {style('Indonime', 1, Palette.secondary)}  —  made with love for anime fans  ✦"
+  print(" " * max((w - len(strip_ansi(line))) // 2, 0) + line)
+  print()
 
 
-def make_style():
-  """InquirerPy custom style."""
-  return get_style({
-    'questionmark': f'{Palette.secondary} bold',
-    'question': f'{Palette.text} bold',
-    'instruction': f'{Palette.dim} italic',
-    'pointer': f'{Palette.primary} bold',
-    'answered_pointer': f'{Palette.muted}',
-    'answer': f'{Palette.primary}',
-    'pager': f'{Palette.primary}',
-    'selected': f'{Palette.secondary}',
-    'multiselect': f'{Palette.primary}',
-    'longlist': f'{Palette.text}',
-  }, style_override=False)
+# ── Loading bar (pre-tuiko rich design) ─────
+console = Console()
 
-
-# ── Progress bar ──────────────────────────
 def make_progress_bar(show_size=False):
-  """Styled download progress bar.
+  """Styled loading/progress bar — spinner, bar, pct, elapsed.
 
   Usage:
     with make_progress_bar() as progress:
       task = progress.add_task("...", total=100)
   """
   columns = [
-    SpinnerColumn(spinner_name="dots", style=Palette.primary),
-    TextColumn(
-      "[progress.description]{task.description}",
-      style=Palette.text,
-    ),
-    BarColumn(
-      bar_width=None,
-      style=Palette.surface,
-      complete_style=Palette.primary,
-      pulse_style=Palette.secondary,
-    ),
+    SpinnerColumn(spinner_name="dots", style="#00d4ff"),
+    TextColumn("[progress.description]{task.description}", style="#d1d5db"),
+    BarColumn(bar_width=None, style="#1f2937",
+              complete_style="#00d4ff", pulse_style="#a855f7"),
   ]
   if show_size:
     columns.append(DownloadColumn(binary_units=True))
-  columns.append(TaskProgressColumn(
-    text_format="{task.percentage:>3.0f}%",
-    style=Palette.text,
-  ))
+  columns.append(TaskProgressColumn(text_format="{task.percentage:>3.0f}%",
+                                    style="#d1d5db"))
   columns.append(TimeElapsedColumn())
-
-  return Progress(
-    *columns,
-    console=console,
-    expand=True,
-    transient=True,
-  )
+  return Progress(*columns, console=console, expand=True, transient=True)
