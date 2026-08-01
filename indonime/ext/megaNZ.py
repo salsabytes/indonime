@@ -107,7 +107,8 @@ def resolve_mega_file_stream(url, file_id, early_mb=2):
   _fmt = [None]  # mutable for closure: 'mp4' or 'mkv'
   bytes_counter = [0]  # ponytail: shared counter for 0-100% progress
 
-  temp_path = tempfile.mktemp(suffix='.mp4')
+  with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as _tmp:
+    temp_path = _tmp.name
 
   def _download():
     try:
