@@ -162,6 +162,67 @@ class TestEpisodeNav(unittest.TestCase):
     finally:
       indonime._play_episode = orig
 
+  def test_download_shortcut_multiselect(self):
+    # ctrl-d → multiselect → space marks EP1, down+space marks EP2, enter downloads both;
+    # quality picked once on EP1, reused for EP2 (queue)
+    calls = []
+    orig = indonime._download_episode
+    indonime._download_episode = lambda *a, **k: calls.append((a, k)) or ("1080p", 100, None)
+    try:
+      self.assertEqual(self._nav(["ctrl-d", "space", "down", "space", "enter", "escape"]), "back")
+      self.assertEqual([c[0][0] for c in calls], ["Ep 0", "Ep 1"])
+      self.assertEqual([c[1].get("quality") for c in calls], [None, "1080p"])
+    finally:
+      indonime._download_episode = orig
+
+  def test_download_shortcut_select_all(self):
+    # ctrl-d → multiselect → ctrl-a pilih SEMUA episode → enter → semua masuk queue
+    calls = []
+    orig = indonime._download_episode
+    indonime._download_episode = lambda *a, **k: calls.append((a, k)) or ("1080p", 100, None)
+    try:
+      self.assertEqual(self._nav(["ctrl-d", "ctrl-a", "escape"]), "back")
+      self.assertEqual([c[0][0] for c in calls], [f"Ep {i}" for i in range(15)])
+    finally:
+      indonime._download_episode = orig
+
+  def test_download_shortcut_skips_failure(self):
+    # EP1 ok → EP2 gagal (None, 0) → queue tetap lanjut, summary 1 berhasil + 1 gagal
+    calls = []
+    returns = iter([("1080p", 100, None), (None, 0, "Download failed")])
+    orig = indonime._download_episode
+    indonime._download_episode = lambda *a, **k: calls.append((a, k)) or next(returns)
+    try:
+      self.assertEqual(self._nav(["ctrl-d", "space", "down", "space", "enter", "escape"]), "back")
+      self.assertEqual([c[0][0] for c in calls], ["Ep 0", "Ep 1"])
+      self.assertEqual([c[1].get("quality") for c in calls], [None, "1080p"])
+    finally:
+      indonime._download_episode = orig
+
+  def test_download_first_episode_failure_recorded(self):
+    # EP1 gagal (bukan cancel) → tetap dicatat, queue lanjut ke EP2
+    calls = []
+    returns = iter([(None, 0, "No sources"), ("1080p", 100, None)])
+    orig = indonime._download_episode
+    indonime._download_episode = lambda *a, **k: calls.append((a, k)) or next(returns)
+    try:
+      self.assertEqual(self._nav(["ctrl-d", "space", "down", "space", "enter", "escape"]), "back")
+      self.assertEqual([c[0][0] for c in calls], ["Ep 0", "Ep 1"])
+      self.assertEqual([c[1].get("quality") for c in calls], [None, None])
+    finally:
+      indonime._download_episode = orig
+
+  def test_download_cancel_stops_queue(self):
+    # user batal di prompt quality (sentinel) → queue langsung berhenti
+    calls = []
+    orig = indonime._download_episode
+    indonime._download_episode = lambda *a, **k: calls.append((a, k)) or (indonime._CANCEL, 0, "Dibatalkan")
+    try:
+      self.assertEqual(self._nav(["ctrl-d", "space", "enter", "escape"]), "back")
+      self.assertEqual(len(calls), 1)
+    finally:
+      indonime._download_episode = orig
+
 class TestMainDispatch(unittest.TestCase):
   def test_modes(self):
     calls = []

@@ -15,13 +15,15 @@ from .ui import (
 )
 
 from . import plugins
-from tuiko import prompt, select, session
+from tuiko import multiselect, prompt, select, session
+from rich.filesize import decimal as _fmt_size
 from .ext import pdrain, megaNZ
 from .ext.megaNZ import _mega_fid, _mega_key
 from .plugins._base import http_stream, resolve_url
 
 # ── Compatible server prefixes ────────────────
 _COMPATIBLE = {'pdrain', 'pixeldrain', 'mega'}
+_CANCEL = "__cancel__"  # sentinel quality: user batal di prompt quality
 
 def _compatible_servers(dl_links):
   """Flatten {quality: {server: url}} → [(label, url)] for compatible servers."""
@@ -66,8 +68,7 @@ def _check_history(anime_url, episode_list):
   return None
 
 # ── Play episode ────────────────────────────────
-def _play_episode(episode_url, plugin, server_url=None, episode_title=None,
-                  key_source=None, out=None):
+def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=None):
   """Resolve stream and play. Returns (success, server_url)."""
   while True:
     if server_url is None:
@@ -87,23 +88,6 @@ def _play_episode(episode_url, plugin, server_url=None, episode_title=None,
       if sel is None:
         return False, None
       last_selected_server_name, server_url = options[sel]
-
-      # After quality selection, offer Play or Download
-      if episode_title:
-        mode_idx = select("📥  What to do with " + episode_title[:50],
-                          [" ▶  Play", " ⬇  Download"],
-                          key_source=key_source, out=out, header=banner_header())
-        if mode_idx is None:
-          return False, None
-        mode = 'download' if mode_idx == 1 else 'play'
-      else:
-        mode = 'play'
-
-      if mode == 'download':
-        _download_episode(episode_title, episode_url, plugin,
-                          server_url=server_url, server_name=last_selected_server_name,
-                          key_source=key_source, out=out)
-        return True, server_url
     else:
       last_selected_server_name = "replay"
 
@@ -183,7 +167,9 @@ def _play_episode(episode_url, plugin, server_url=None, episode_title=None,
 
 # ── Download episode ────────────────────────────
 def _download_episode(episode_title, episode_url, plugin, server_url=None, server_name=None,
-                      key_source=None, out=None):
+                      key_source=None, out=None, quality=None):
+  """Download one episode. Returns (quality_label, bytes, reason).
+  quality == _CANCEL saat user batal; None + reason saat gagal; None reason saat sukses."""
   # Sanitize filename first
   safe = "".join(c if c.isalnum() or c in " .-_()[]" else "_" for c in episode_title)[:100]
   downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
@@ -199,13 +185,17 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
 
     if not options:
       print_warning("No compatible download sources found.")
-      return
+      return None, 0, "No compatible download sources found."
 
     labels = [o[0] for o in options]
-    sel = select("📥  Select quality & server:", labels,
-                 key_source=key_source, out=out, header=banner_header())
-    if sel is None:
-      return
+    if quality is not None and quality in labels:
+      sel = labels.index(quality)  # reuse same quality — no prompt
+    else:
+      sel = select("📥  Select quality & server:", labels,
+                   key_source=key_source, out=out, header=banner_header())
+      if sel is None:
+        return _CANCEL, 0, "Dibatalkan"
+      quality = labels[sel]
 
     server_name, server_url = options[sel]
 
@@ -215,7 +205,7 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
       curr = resolve_url(server_url, timeout=15)
     except Exception as e:
       print_error(f"Network Error: {e}")
-      return
+      return None, 0, f"Network Error: {e}"
 
     # Extract key + file_id — try server_url first, then redirect URL
     megakey_raw = _mega_key(server_url) or _mega_key(curr)
@@ -224,7 +214,7 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
       _, f_id = _mega_fid(server_url)
     if not f_id:
       print_error("Could not extract Mega file ID.")
-      return
+      return None, 0, "Could not extract Mega file ID."
 
     # Reconstruct clean URL — host gak dipakai downstream, cuma #key fragment yang penting
     mega_url = f"https://mega.nz/file/{f_id}#{megakey_raw}"
@@ -232,7 +222,7 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
     try:
       stream = megaNZ.resolve_mega_file_stream(mega_url, f_id)
       if stream is None:
-        return
+        return None, 0, "Gagal resolve stream Mega"
       path, ready, stop, dl_thread, bytes_counter, file_size = stream
 
       # Wait for full download
@@ -246,7 +236,8 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
         if dl_thread.is_alive():
           print_warning("Download timed out (>10 min).")
           stop.set()
-          return
+          return None, 0, "Download timed out (>10 min)."
+      size = bytes_counter[0]
 
       # Copy to Downloads
       dest = os.path.join(downloads_dir, f"{safe}.mp4")
@@ -256,7 +247,7 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
 
     except Exception as e:
       print_error(f"Download failed: {e}")
-      return
+      return None, 0, f"Download failed: {e}"
 
   else:
     # PixelDrain — download stream
@@ -266,9 +257,10 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
         final_url = pdrain.scrape(server_url)
       if not final_url:
         print_error("Stream not available.")
-        return
+        return None, 0, "Stream not available."
 
       dest = os.path.join(downloads_dir, f"{safe}.mp4")
+      size = 0
       with http_stream(final_url, timeout=30) as resp:
         total = int(resp.headers.get('Content-Length', 0))
 
@@ -280,13 +272,15 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
               if not chunk:
                 break
               f.write(chunk)
+              size += len(chunk)
               if total:
                 p.update(task, advance=len(chunk))
     except Exception as e:
       print_error(f"Download failed: {e}")
-      return
+      return None, 0, f"Download failed: {e}"
 
   print_success(f"✅ Downloaded: {dest}")
+  return quality, size, None
 
 
 def _episode_nav(episode_list, plugin, back_label='<< BACK',
@@ -306,7 +300,39 @@ def _episode_nav(episode_list, plugin, back_label='<< BACK',
     labels.append(f"↩  {back_label}")
 
     sel = select("▶  Select episode:", labels, search=True, fuzzy=True,
-                 key_source=key_source, out=out, header=header)
+                 key_source=key_source, out=out, header=header,
+                 shortcuts={"ctrl-d": "download"})
+    if isinstance(sel, str):
+      if sel == 'download':
+        ep_labels = labels[:-1]
+        picks = multiselect("⬇  Pilih episode:", ep_labels, search=True, fuzzy=True,
+                            key_source=key_source, out=out, header=header,
+                            shortcuts={"ctrl-a": "pilih semua"})
+        if picks == "pilih semua":
+          picks = set(range(len(ep_labels)))
+        if picks:
+          quality = None
+          ok = fail = 0
+          total_bytes = 0
+          failed = []
+          for i in sorted(picks):
+            q, size, reason = _download_episode(episode_list[i]['title'], episode_list[i]['url'], plugin,
+                                                key_source=key_source, out=out, quality=quality)
+            if q == _CANCEL:
+              break  # user batal di prompt quality → stop queue
+            if q:
+              quality = q
+              ok += 1
+              total_bytes += size
+            else:
+              fail += 1  # episode gagal (termasuk ep pertama) → dicatat, queue lanjut (quality None = re-prompt)
+              failed.append((episode_list[i]['title'], reason))
+          if ok or fail:
+            print_success(f"Queue selesai — {ok} berhasil, {fail} gagal, {_fmt_size(total_bytes)}")
+            for title, reason in failed:
+              print_warning(f"{title}: {reason}")
+            time.sleep(2)  # biar kebaca sebelum list re-render
+      continue
     if sel is None or sel == len(labels) - 1:
       from .plugins._base import cache_clear
       cache_clear()
@@ -324,7 +350,6 @@ def _episode_nav(episode_list, plugin, back_label='<< BACK',
       print_header("🎬 NOW PLAYING", "▶")
       ok, url = _play_episode(
         episode_list[idx]['url'], plugin, server_url=_last_url,
-        episode_title=episode_list[idx]['title'],
         key_source=key_source, out=out)
       if not ok:
         time.sleep(2)
