@@ -1,5 +1,5 @@
 from urllib.parse import urlparse
-from tuiko import status, style
+from tuiko import style
 from ..ui import Palette
 from ..plugins._base import http_head, resolve_url
 
@@ -37,7 +37,6 @@ def _api_url(url):
 
 def scrape(url):
   try:
-    status("🌀 Bypassing Otakulinks...")
     final_url = resolve_url(url, timeout=15)
     if _is_pixeldrain_url(final_url):
       api_url = _api_url(final_url)

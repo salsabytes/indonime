@@ -65,7 +65,6 @@ git clone https://github.com/salsabytes/indonime
 cd indonime
 
 # 2. Install dependencies
-pip install -r requirements.txt
 pip install -e .
 
 # 3. Run — mpv auto-installs if missing

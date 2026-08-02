@@ -80,7 +80,6 @@ pip install indonime
 ```bash
 git clone https://github.com/salsabytes/indonime
 cd indonime
-pip install -r requirements.txt
 pip install -e .
 python main.py
 ```
@@ -157,7 +156,6 @@ indonime/
 │   ├── 📁 ext/               # Utility modules
 │   │   ├── megaNZ.py        # Mega download + AES decrypt
 │   │   ├── pdrain.py        # PixelDrain downloader
-│   │   └── videodec.py      # Video decryption utils
 │   └── 📁 plugins/           # Provider scrapers
 │       ├── anoboy.py        # Anoboy provider
 │       ├── otakudesu.py     # Otakudesu provider

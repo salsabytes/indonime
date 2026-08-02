@@ -113,9 +113,6 @@ venv\Scripts\activate
 # source venv/bin/activate
 
 # 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Install dalam mode editable
 pip install -e .
 
 # 5. Jalankan
@@ -143,21 +140,17 @@ indonime/
 ├── indonime/              # Package utama
 │   ├── __init__.py        # Entry point, main() function
 │   ├── __main__.py        # `python -m indonime`
-│   ├── ui.py              # TUI — InquirerPy + Rich (menu, prompt)
-│   └── player.py          # Player — streaming via mpv
-├── ext/                   # Utility / extension modules
-│   ├── __init__.py
-│   ├── megaNZ.py          # Mega downloader + AES-128 CTR decrypt
-│   ├── pdrain.py          # PixelDrain downloader
-│   └── videodec.py        # Video decryption utilities
+│   ├── ui.py              # TUI — tuiko (menu, prompt)
+│   ├── player.py          # Player — streaming via mpv
+│   ├── _mpv_install.py    # Auto-install mpv
+│   └── ext/               # Utility / extension modules
+│       ├── megaNZ.py      # Mega downloader + AES-128 CTR decrypt
+│       └── pdrain.py      # PixelDrain downloader
 ├── plugins/               # Plugin system — provider scrapers
 │   └── __init__.py
-├── scripts/               # Utility scripts
 ├── main.py                # CLI entry point (developer shortcut)
-├── setup.py               # Package setup (setuptools)
 ├── pyproject.toml         # Build system config
-├── setup_mpv.py           # Auto-install mpv
-├── requirements.txt       # Dependencies
+├── build_exe.py           # Build Indonime.exe (PyInstaller)
 ├── README.md              # Dokumentasi utama (Indonesia)
 ├── README.en.md           # Dokumentasi (English)
 └── SECURITY.md            # Security policy
@@ -170,11 +163,10 @@ indonime/
 | `indonime/__init__.py` | Entry point `main()`, routing argumen CLI |
 | `indonime/ui.py` | TUI interaktif: search, pilih episode, pilih provider |
 | `indonime/player.py` | Handle streaming ke mpv, cleanup temp file |
-| `ext/megaNZ.py` | Download + decrypt link Mega (AES-128 CTR murni Python) |
-| `ext/pdrain.py` | Download dari PixelDrain |
-| `ext/videodec.py` | Video decryption logic |
-| `plugins/` | Scraper tiap provider (Otakudesu, Anoboy, dll) |
-| `scripts/` | Helper scripts untuk development/rilis |
+| `indonime/_mpv_install.py` | Auto-install mpv lintas platform |
+| `indonime/ext/megaNZ.py` | Download + decrypt link Mega (AES-128 CTR murni Python) |
+| `indonime/ext/pdrain.py` | Download dari PixelDrain |
+| `indonime/plugins/` | Scraper tiap provider (Otakudesu, Anoboy, dll) |
 
 ---
 
@@ -358,11 +350,11 @@ python -c "from plugins import otakudesu; print(otakudesu.search('one piece'))"
 python build.py
 ```
 
-Hasilnya ada di `dist/Indonime.exe`. Proses build pake Nuitka (lihat `requirements.txt`).
+Hasilnya ada di `dist/Indonime.exe`. Proses build pake PyInstaller (lihat `build_exe.py`).
 
 ### Rilis
 
-1. Update versi di `setup.py`
+1. Update versi di `pyproject.toml`
 2. Commit dengan `chore(release): vX.Y.Z`
 3. Tag: `git tag vX.Y.Z`
 4. Build & upload ke GitHub Releases
