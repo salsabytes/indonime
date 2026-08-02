@@ -1,4 +1,4 @@
-# Smoke tests for ponytail-audit refactors (stdlib unittest only — no new deps).
+# Smoke tests (stdlib unittest only — no new deps).
 # Run: python -m unittest discover -s tests -v
 import base64
 import http.server
@@ -22,7 +22,7 @@ from indonime.plugins._base import (fetch_soup, http_get, http_head,
                                     http_post_json, http_stream, resolve_url)
 from indonime.ext.megaNZ import _mega_fid, _mega_key, _parse_mega_url
 
-# ── local HTTP server: real sockets, no mocks ──
+# local HTTP server: real sockets, no mocks
 class _H(http.server.BaseHTTPRequestHandler):
   def log_message(self, *a):
     pass
@@ -120,9 +120,152 @@ class TestMegaParser(unittest.TestCase):
     self.assertEqual(len(iv), 16)
 
   def test_single_home(self):
-    # definisi cuma di megaNZ — di __init__ cuma reference import
+    # defined only in megaNZ — __init__ only re-references the import
     self.assertEqual(inspect.getmodule(indonime._mega_fid).__name__, "indonime.ext.megaNZ")
     self.assertEqual(inspect.getmodule(indonime._mega_key).__name__, "indonime.ext.megaNZ")
+
+  def test_faststart(self):
+    from indonime.ext.megaNZ import _is_faststart
+    # moov before mdat → faststart → can stream from the start
+    faststart = b'\x00\x00\x00\x18ftypisom' + b'\x00\x00\x00\x10moov' + b'\x00\x00\x00\x10mdat'
+    self.assertTrue(_is_faststart(faststart))
+    # moov at the end → not faststart → must wait for the full download
+    slowstart = b'\x00\x00\x00\x18ftypisom' + b'\x00\x00\x00\x10mdat' + b'\x00\x00\x00\x10moov'
+    self.assertFalse(_is_faststart(slowstart))
+    # no moov at all yet in the early buffer
+    self.assertFalse(_is_faststart(b'\x00\x00\x00\x18ftypisom' + b'\x00\x00\x00\x10mdat'))
+    # non-MP4 (mkv etc.) — the helper is only called for mp4, but stays safe
+    self.assertFalse(_is_faststart(b'\x1a\x45\xdf\xa3'))
+
+  def test_moov_complete(self):
+    from indonime.ext.megaNZ import _moov_complete
+    # box MP4: [4-byte size][type][payload] — ftyp=24B, moov=16B, mdat=16B
+    full = (b'\x00\x00\x00\x18ftyp' + b'isom' * 4) + \
+           (b'\x00\x00\x00\x10moov' + b'x' * 8) + \
+           (b'\x00\x00\x00\x10mdat' + b'y' * 8)
+    self.assertTrue(_moov_complete(full))
+    self.assertFalse(_moov_complete(full[:30]))  # truncated moov → don't stream
+    self.assertFalse(_moov_complete(b'\x00\x00\x00\x10mdat' + b'y' * 8))  # no moov
+    # moov complete but mdat not in the buffer yet → still ready (stream starts)
+    self.assertTrue(_moov_complete(b'\x00\x00\x00\x18ftyp' + b'isom' * 4 + b'\x00\x00\x00\x10moov' + b'x' * 8))
+
+  @staticmethod
+  def _key():
+    b64 = base64.urlsafe_b64encode(bytes(range(32))).rstrip(b"=").decode()
+    return _parse_mega_url(f"https://mega.nz/file/X#{b64}")
+
+  def test_ctr_range_decrypt(self):
+    # range decrypt ≡ slice of the continuous whole-file decryptor (16-aligned)
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from indonime.ext.megaNZ import _decrypt_range
+    k, iv = self._key()
+    plain = bytes((i * 7) % 256 for i in range(300 * 1024))
+    enc = Cipher(algorithms.AES(k), modes.CTR(iv), backend=default_backend()).encryptor().update(plain)
+    self.assertEqual(_decrypt_range(k, iv, enc[:1024], 0), plain[:1024])
+    off = 12345 & ~15
+    self.assertEqual(_decrypt_range(k, iv, enc[off:off + 4096], off), plain[off:off + 4096])
+    off2 = (300 * 1024 - 1000) & ~15
+    self.assertEqual(_decrypt_range(k, iv, enc[off2:], off2), plain[off2:])
+
+  def test_moov_first_rebuild(self):
+    # A non-faststart MP4 (ftyp|mdat|moov) is rebuilt as faststart, AND the
+    # chunk-offset table (stco) is patched by +len(moov) — without this, players
+    # read data from the old offsets → decode error → mpv closes in < 1s (real regression).
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from indonime.ext.megaNZ import _decrypt_range, _write_moov_first
+    k, iv = self._key()
+
+    def box(t, payload):
+      return (len(payload) + 8).to_bytes(4, "big") + t + payload
+
+    stco = box(b"stco", b"\x00\x00\x00\x00" + (3).to_bytes(4, "big") +
+               (24).to_bytes(4, "big") + (1000).to_bytes(4, "big") + (5000).to_bytes(4, "big"))
+    co64 = box(b"co64", b"\x00\x00\x00\x00" + (2).to_bytes(4, "big") +
+               (100000).to_bytes(8, "big") + (200000).to_bytes(8, "big"))
+    trak = lambda t: box(b"trak", box(b"mdia", box(b"minf", box(b"stbl", t))))
+    moov = box(b"moov", box(b"mvhd", b"\x00" * 80) + trak(stco) + trak(co64))
+    ftyp = box(b"ftyp", b"isom" * 4)
+    mdat = box(b"mdat", bytes((i * 13) % 256 for i in range(1_200_000)))
+    plain = ftyp + mdat + moov
+    size = len(plain)
+    enc = Cipher(algorithms.AES(k), modes.CTR(iv), backend=default_backend()).encryptor().update(plain)
+
+    def get_range(s, e):  # production get_range: s always 16-aligned
+      return _decrypt_range(k, iv, enc[s:e], s)
+
+    out = bytearray()
+    marks = []
+    st = _write_moov_first(k, iv, size, get_range, out.extend, lambda: marks.append(1))
+    self.assertEqual(st, "done")
+    self.assertEqual(marks, [1])         # header (ftyp+moov) written → ready
+    out = bytes(out)
+    self.assertEqual(out[:len(ftyp)], ftyp)                 # prelude intact
+    self.assertEqual(out[len(ftyp) + len(moov):], mdat)     # mdat intact, just shifted
+    i = out.find(b"stco")
+    entries = [int.from_bytes(out[i + 12 + k * 4: i + 16 + k * 4], "big") for k in range(3)]
+    self.assertEqual(entries, [24 + len(moov), 1000 + len(moov), 5000 + len(moov)])
+    i2 = out.find(b"co64")
+    entries64 = [int.from_bytes(out[i2 + 12 + k * 8: i2 + 20 + k * 8], "big") for k in range(2)]
+    self.assertEqual(entries64, [100000 + len(moov), 200000 + len(moov)])
+
+    # faststart MP4 → untouched (fallback, the sequential flow runs)
+    plain2 = ftyp + moov + mdat
+    enc2 = Cipher(algorithms.AES(k), modes.CTR(iv), backend=default_backend()).encryptor().update(plain2)
+    out2 = bytearray()
+    st2 = _write_moov_first(k, iv, len(plain2),
+                            lambda s, e: _decrypt_range(k, iv, enc2[s:e], s),
+                            out2.extend, lambda: None)
+    self.assertEqual(st2, "fallback")
+    self.assertEqual(bytes(out2), b"")
+
+  def test_moov_first_abort(self):
+    # a range fetch fails mid-mdat → 'abort' (not 'fallback'): the header
+    # (ftyp+moov) was written, the rest stops — mpv plays partial, user retries
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from indonime.ext.megaNZ import _decrypt_range, _write_moov_first
+    k, iv = self._key()
+
+    def box(t, n):
+      return (n + 8).to_bytes(4, "big") + t + b"x" * n
+
+    ftyp, mdat, moov = box(b"ftyp", 16), box(b"mdat", 1_200_000), box(b"moov", 3000)
+    plain = ftyp + mdat + moov
+    enc = Cipher(algorithms.AES(k), modes.CTR(iv), backend=default_backend()).encryptor().update(plain)
+    calls = [0]
+
+    def get_range(s, e):
+      calls[0] += 1
+      if calls[0] > 2:  # head + tail ok, the first mdat fetch fails
+        return None
+      return _decrypt_range(k, iv, enc[s:e], s)
+
+    out = bytearray()
+    marks = []
+    st = _write_moov_first(k, iv, len(plain), get_range, out.extend, lambda: marks.append(1))
+    self.assertEqual(st, "abort")
+    self.assertEqual(bytes(out), ftyp + moov)  # only the header was written
+    self.assertEqual(marks, [])                # no mdat yet → ready was not called
+
+  def test_plan_moov_first(self):
+    from indonime.ext.megaNZ import _HEAD_SCAN, _TAIL_SCAN, _plan_moov_first
+
+    def box(t, n):
+      return (n + 8).to_bytes(4, "big") + t + b"x" * n
+
+    ftyp, mdat, moov = box(b"ftyp", 16), box(b"mdat", 1_200_000), box(b"moov", 3000)
+    plain = ftyp + mdat + moov
+    size = len(plain)
+    tail_off = max(0, size - _TAIL_SCAN) & ~15
+    plan = _plan_moov_first(plain[:_HEAD_SCAN], plain[tail_off:], size, tail_off)
+    self.assertEqual(plan, (len(ftyp), len(ftyp) + len(mdat), size))
+    # faststart (moov at the front) → None (already streamable)
+    fast = ftyp + moov + mdat
+    self.assertIsNone(_plan_moov_first(fast[:_HEAD_SCAN], b"", len(fast), 0))
+    # not an MP4 (no mdat) → None
+    self.assertIsNone(_plan_moov_first(b"\x1a\x45\xdf\xa3" + b"x" * 100, b"", 108, 0))
 
 class TestCompatibleServers(unittest.TestCase):
   def test_filter(self):
@@ -131,7 +274,7 @@ class TestCompatibleServers(unittest.TestCase):
                      ["[1080p] PixelDrain", "[1080p] MEGA"])
 
 class TestEpisodeNav(unittest.TestCase):
-  # 15 eps: exercises tuiko-driven episode pick + post-play loop (no TTY, key_source)
+  # 15 episodes: exercises tuiko-driven episode pick + post-play loop (no TTY, key_source)
   EPS = [{"title": f"Ep {i}", "url": f"u{i}"} for i in range(15)]
 
   def _nav(self, keys):
@@ -176,7 +319,7 @@ class TestEpisodeNav(unittest.TestCase):
       indonime._download_episode = orig
 
   def test_download_shortcut_select_all(self):
-    # ctrl-d → multiselect → ctrl-a pilih SEMUA episode → enter → semua masuk queue
+    # ctrl-d → multiselect → ctrl-a selects ALL episodes → enter → all queued
     calls = []
     orig = indonime._download_episode
     indonime._download_episode = lambda *a, **k: calls.append((a, k)) or ("1080p", 100, None)
@@ -187,7 +330,7 @@ class TestEpisodeNav(unittest.TestCase):
       indonime._download_episode = orig
 
   def test_download_shortcut_skips_failure(self):
-    # EP1 ok → EP2 gagal (None, 0) → queue tetap lanjut, summary 1 berhasil + 1 gagal
+    # EP1 ok → EP2 fails (None, 0) → queue continues, summary 1 success + 1 failure
     calls = []
     returns = iter([("1080p", 100, None), (None, 0, "Download failed")])
     orig = indonime._download_episode
@@ -200,7 +343,7 @@ class TestEpisodeNav(unittest.TestCase):
       indonime._download_episode = orig
 
   def test_download_first_episode_failure_recorded(self):
-    # EP1 gagal (bukan cancel) → tetap dicatat, queue lanjut ke EP2
+    # EP1 fails (not a cancel) → still recorded, the queue continues to EP2
     calls = []
     returns = iter([(None, 0, "No sources"), ("1080p", 100, None)])
     orig = indonime._download_episode
@@ -213,7 +356,7 @@ class TestEpisodeNav(unittest.TestCase):
       indonime._download_episode = orig
 
   def test_download_cancel_stops_queue(self):
-    # user batal di prompt quality (sentinel) → queue langsung berhenti
+    # user cancels at the quality prompt (sentinel) → the queue stops immediately
     calls = []
     orig = indonime._download_episode
     indonime._download_episode = lambda *a, **k: calls.append((a, k)) or (indonime._CANCEL, 0, "Dibatalkan")
@@ -252,8 +395,8 @@ class TestDeletedSymbols(unittest.TestCase):
     self.assertFalse(hasattr(indonime, "_search_mode"))
     self.assertFalse(hasattr(indonime, "_download_mode"))
 
+# list_all() parses the anime-list pages without network (patched fetch_soup).
 class TestCatalogParsing(unittest.TestCase):
-  """list_all() parses the anime-list pages without network (patched fetch_soup)."""
   def setUp(self):
     from indonime.plugins._base import cache_clear
     cache_clear()
@@ -311,8 +454,8 @@ class TestCatalogParsing(unittest.TestCase):
       {'title': 'Spy x Family', 'url': 'https://anoboy7.com/anime/spy-x-family/'},
     ])
 
+# Live fuzzy search: type keys → filter catalog → enter picks the match.
 class TestCatalogSelect(unittest.TestCase):
-  """Live fuzzy search: type keys → filter catalog → enter picks the match."""
   class _Plugin:
     CATALOG = [
       {'title': 'Naruto Shippuden', 'url': 'u1'},

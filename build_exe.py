@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Build Indonime.exe with PyInstaller --onefile.
-
-Usage:
-  pip install pyinstaller
-  python build_exe.py
-"""
+# Build Indonime.exe with PyInstaller --onefile.
+#
+# Usage:
+#   pip install pyinstaller
+#   python build_exe.py
 import sys
 import shutil
 import subprocess
@@ -14,8 +13,8 @@ if not shutil.which("pyinstaller"):
   print("❌ PyInstaller not found. Install: pip install pyinstaller")
   sys.exit(1)
 
-# Hapus output lama + --clean: cache analysis PyInstaller nyimpen file yang udah
-# dihapus (videodec.py dll) → EXE rusak kalau cache gak dibersihin.
+# Remove stale output and use --clean: PyInstaller's analysis cache keeps files
+# that no longer exist (e.g. removed modules), which breaks the built EXE.
 for d in ['dist', 'build']:
   shutil.rmtree(d, ignore_errors=True)
 

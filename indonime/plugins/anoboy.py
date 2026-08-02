@@ -1,4 +1,4 @@
-"""Anoboy provider — search, episodes, download links."""
+# Anoboy provider: search, episodes, download links.
 from ._base import fetch_soup, cached, safe
 
 BASE = 'https://anoboy7.com'
@@ -17,8 +17,8 @@ def search_anime(query):
 
 @safe([])
 @cached(ttl=600)
+# Full catalog — live fuzzy search source.
 def list_all():
-  """Full catalog — live fuzzy search source."""
   soup = fetch_soup(f'{BASE}/anime-list/')
   seen = set()
   out = []

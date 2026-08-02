@@ -1,4 +1,4 @@
-"""Banner, headers, status messages — tuiko-based (no rich / InquirerPy / pyfiglet)."""
+# Banner, headers, status messages — tuiko-based (no rich / InquirerPy / pyfiglet).
 import sys
 
 from tuiko import grad, sep, strip_ansi, style, term_width, theme
@@ -33,13 +33,13 @@ BANNER_TITLE = "INDONIME"
 BANNER_SUB = "Subtitle Indonesia Anime Searcher — cari · tonton · nikmati"
 
 
+# Header tuple for tuiko select/prompt frames (gradient title + subtitle).
 def banner_header():
-  """Header tuple for tuiko select/prompt frames (gradient title + subtitle)."""
   return (BANNER_TITLE, style(f"  {BANNER_SUB}", theme.muted))
 
 
+# Centered gradient banner outside interactive frames.
 def print_banner():
-  """Centered gradient banner outside interactive frames."""
   w = term_width()
   title = grad(f"  {BANNER_TITLE}  ", theme.grad)
   print()
@@ -48,9 +48,9 @@ def print_banner():
   print()
 
 
-# ── Section header ────────────────────────
+# Section header
+# Styled section header.
 def print_header(title: str, icon: str = ""):
-  """Styled section header."""
   print()
   label = f"  {icon}  {title}" if icon else f"  {title}"
   print(style(label, 1, Palette.accent))
@@ -58,7 +58,7 @@ def print_header(title: str, icon: str = ""):
   print()
 
 
-# ── Status messages ───────────────────────
+# Status messages
 def _print_msg(icon: str, color: int, msg: str, dim=False):
   print(f"  {style(icon, 1, color)}  {style(msg, Palette.dim) if dim else style(msg, Palette.text)}")
 
@@ -79,16 +79,16 @@ def print_warning(msg: str):
   _print_msg("⚠", Palette.warning, msg)
 
 
+# Faint horizontal rule.
 def print_separator():
-  """Faint horizontal rule."""
   print()
   print(sep(max(term_width() - 2, 10), color=Palette.surface))
   print()
 
 
-# ── Post-play menu ────────────────────────
+# Post-play menu
+# Context-aware post-play command list.
 def make_postplay_actions(current_idx: int, total: int) -> list[str]:
-  """Context-aware post-play command list."""
   actions = []
   if current_idx + 1 < total:
     actions.append("▶  NEXT")
@@ -100,9 +100,9 @@ def make_postplay_actions(current_idx: int, total: int) -> list[str]:
   return actions
 
 
-# ── Footer ─────────────────────────────────
+# Footer
+# Clean centered footer.
 def make_footer():
-  """Clean centered footer."""
   print()
   w = term_width()
   line = f"  ✦  {style('Indonime', 1, Palette.secondary)}  —  made with love for anime fans  ✦"
@@ -110,16 +110,15 @@ def make_footer():
   print()
 
 
-# ── Loading bar (pre-tuiko rich design) ─────
+# Loading bar (pre-tuiko rich design)
 console = Console()
 
+# Styled loading/progress bar — spinner, bar, pct, elapsed.
+#
+# Usage:
+#   with make_progress_bar() as progress:
+#     task = progress.add_task("...", total=100)
 def make_progress_bar(show_size=False):
-  """Styled loading/progress bar — spinner, bar, pct, elapsed.
-
-  Usage:
-    with make_progress_bar() as progress:
-      task = progress.add_task("...", total=100)
-  """
   columns = [
     SpinnerColumn(spinner_name="dots", style="#00d4ff"),
     TextColumn("[progress.description]{task.description}", style="#d1d5db"),

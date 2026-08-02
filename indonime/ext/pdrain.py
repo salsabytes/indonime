@@ -7,8 +7,8 @@ from ..plugins._base import http_head, resolve_url
 _PIXELDRAIN_DOMAIN = "pixeldrain.com"
 
 
+# Proper hostname check — not a substring match.
 def _is_pixeldrain_url(url):
-  """Proper hostname check — not a substring match."""
   try:
     host = urlparse(url).netloc.lower()
     return host == _PIXELDRAIN_DOMAIN or host.endswith("." + _PIXELDRAIN_DOMAIN)
@@ -16,8 +16,8 @@ def _is_pixeldrain_url(url):
     return False
 
 
+# HEAD check: file exists & returns video content.
 def _is_playable(url):
-  """HEAD check: file exists & returns video content."""
   try:
     status_code, ctype = http_head(url, timeout=10)
     return status_code == 200 and ctype.startswith("video/")

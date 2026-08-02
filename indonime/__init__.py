@@ -1,4 +1,4 @@
-"""search → select → play — tuiko-powered (no rich / InquirerPy / pyfiglet)."""
+# search → select → play — tuiko-powered (no rich / InquirerPy / pyfiglet).
 import argparse
 import importlib
 import json
@@ -21,12 +21,12 @@ from .ext import pdrain, megaNZ
 from .ext.megaNZ import _mega_fid, _mega_key
 from .plugins._base import http_stream, resolve_url
 
-# ── Compatible server prefixes ────────────────
+# Compatible server prefixes
 _COMPATIBLE = {'pdrain', 'pixeldrain', 'mega'}
-_CANCEL = "__cancel__"  # sentinel quality: user batal di prompt quality
+_CANCEL = "__cancel__"  # sentinel quality: user cancelled at the quality prompt
 
 def _compatible_servers(dl_links):
-  """Flatten {quality: {server: url}} → [(label, url)] for compatible servers."""
+  # Flatten {quality: {server: url}} → [(label, url)] for compatible servers.
   options = []
   for res, servers in dl_links.items():
     for s_name, s_url in servers.items():
@@ -35,7 +35,7 @@ def _compatible_servers(dl_links):
   return options
 
 
-# ── History ─────────────────────────────────────
+# History
 _HISTORY_FILE = os.path.join(os.path.expanduser("~"), ".indonime", "history.json")
 _HISTORY = None
 
@@ -67,9 +67,9 @@ def _check_history(anime_url, episode_list):
       return i
   return None
 
-# ── Play episode ────────────────────────────────
+# Play episode
 def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=None):
-  """Resolve stream and play. Returns (success, server_url)."""
+  # Resolve stream and play. Returns (success, server_url).
   while True:
     if server_url is None:
       with make_progress_bar() as p:
@@ -131,12 +131,19 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
           server_url = None
           continue
 
-      with make_progress_bar() as p:
-        p.add_task("📥 Buffering stream...", total=None)
+      with make_progress_bar(show_size=True) as p:
+        task = p.add_task("📥 Buffering stream...", total=file_size or None)
         _stall_t0 = time.time()
+        _last_bytes = 0
         while not ready.is_set():
-          if time.time() - _stall_t0 > 60:
-            print_warning("Buffering timed out (>60s). Check connection or retry.")
+          done = bytes_counter[0]
+          p.update(task, completed=done)
+          if done != _last_bytes:  # still making progress → reset the stall timer
+            _last_bytes = done
+            _stall_t0 = time.time()
+          elif time.time() - _stall_t0 > 60:  # 60s without progress = dead connection
+            print_warning("Download stalled (>60s tanpa progress). Cek koneksi atau retry.")
+            stop.set()  # kill the old thread before retry
             server_url = None
             break
           time.sleep(0.15)
@@ -165,11 +172,12 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
         continue
 
 
-# ── Download episode ────────────────────────────
+# Download episode
 def _download_episode(episode_title, episode_url, plugin, server_url=None, server_name=None,
                       key_source=None, out=None, quality=None):
-  """Download one episode. Returns (quality_label, bytes, reason).
-  quality == _CANCEL saat user batal; None + reason saat gagal; None reason saat sukses."""
+  # Download one episode. Returns (quality_label, bytes, reason).
+  # quality == _CANCEL when the user bails; quality None + reason on failure;
+  # reason None on success.
   # Sanitize filename first
   safe = "".join(c if c.isalnum() or c in " .-_()[]" else "_" for c in episode_title)[:100]
   downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
@@ -216,7 +224,7 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
       print_error("Could not extract Mega file ID.")
       return None, 0, "Could not extract Mega file ID."
 
-    # Reconstruct clean URL — host gak dipakai downstream, cuma #key fragment yang penting
+    # Reconstruct a clean URL — the host isn't used downstream, only the #key fragment matters
     mega_url = f"https://mega.nz/file/{f_id}#{megakey_raw}"
 
     try:
@@ -238,8 +246,14 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
           stop.set()
           return None, 0, "Download timed out (>10 min)."
       size = bytes_counter[0]
+      if size != file_size:
+        # the stream broke mid-way — never copy a truncated file as a "success"
+        print_error(f"Download incomplete: {size}/{file_size} bytes")
+        stop.set()
+        if os.path.exists(path):
+          os.remove(path)
+        return None, 0, "Download incomplete"
 
-      # Copy to Downloads
       dest = os.path.join(downloads_dir, f"{safe}.mp4")
       shutil.copy2(path, dest)
       if os.path.exists(path):
@@ -286,7 +300,7 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
 def _episode_nav(episode_list, plugin, back_label='<< BACK',
                  show_banner=True, anime_url=None, mode='play',
                  key_source=None, out=None):
-  """Episode pick → play → post-play loop. Returns 'back' or 'quit'."""
+  # Episode pick → play → post-play loop. Returns 'back' or 'quit'.
   idx = 0
   _last_url = None
   resume_idx = _check_history(anime_url, episode_list) if anime_url else None
@@ -319,19 +333,19 @@ def _episode_nav(episode_list, plugin, back_label='<< BACK',
             q, size, reason = _download_episode(episode_list[i]['title'], episode_list[i]['url'], plugin,
                                                 key_source=key_source, out=out, quality=quality)
             if q == _CANCEL:
-              break  # user batal di prompt quality → stop queue
+              break  # user cancelled at the quality prompt → stop the queue
             if q:
               quality = q
               ok += 1
               total_bytes += size
             else:
-              fail += 1  # episode gagal (termasuk ep pertama) → dicatat, queue lanjut (quality None = re-prompt)
+              fail += 1  # episode failed (incl. the first) → noted; queue continues (quality None = re-prompt)
               failed.append((episode_list[i]['title'], reason))
           if ok or fail:
             print_success(f"Queue selesai — {ok} berhasil, {fail} gagal, {_fmt_size(total_bytes)}")
             for title, reason in failed:
               print_warning(f"{title}: {reason}")
-            time.sleep(2)  # biar kebaca sebelum list re-render
+            time.sleep(2)  # let the message be read before the list re-renders
       continue
     if sel is None or sel == len(labels) - 1:
       from .plugins._base import cache_clear
@@ -388,7 +402,7 @@ def _episode_nav(episode_list, plugin, back_label='<< BACK',
         return 'quit'
 
 
-# ── Customizable shortcuts (search screen) ──
+# Customizable shortcuts (search screen)
 # Map key → action. Actions handled in _tui_loop: 'provider', 'quit', 'abort'.
 # Keep keys non-printable (ctrl-...) so they don't hijack search-box typing.
 # ctrl-b because VS Code's terminal strips Alt and swallows Ctrl+P/Q (Quick
@@ -398,11 +412,11 @@ _SHORTCUTS = {
   "ctrl-b": "provider",
 }
 
-# ── Catalog cache ───────────────────────────
+# Catalog cache
 _CATALOG_CACHE = {}  # plugin module name -> (ts, catalog)
 
 def _get_catalog(plugin):
-  """Catalog with a module-level cache that survives cache_clear() (no 845KB refetch on back)."""
+  # Module-level cache that survives cache_clear() (no 845KB refetch on back).
   name = getattr(plugin, '__name__', type(plugin).__name__)
   now = time.time()
   hit = _CATALOG_CACHE.get(name)
@@ -415,13 +429,11 @@ def _get_catalog(plugin):
     _CATALOG_CACHE[name] = (now, catalog)
   return catalog
 
-# ── Search and select helper ──────────────
+# Search and select helper
 def _catalog_select(plugin, key_source=None, out=None, shortcuts=None):
-  """Live fuzzy search over the full catalog — no Enter needed.
-
-  Returns (url, episode_list), a shortcut action string, 'abort' when the
-  user bails (escape / ABORT sentinel), or None when nothing is found.
-  """
+  # Live fuzzy search over the full catalog — no Enter needed.
+  # Returns (url, episode_list), a shortcut action string, 'abort' when the
+  # user bails (escape / ABORT sentinel), or None when nothing is found.
   print_header("🔎 SEARCHING", "🔎")
   catalog = _get_catalog(plugin)
 
@@ -449,14 +461,11 @@ def _catalog_select(plugin, key_source=None, out=None, shortcuts=None):
   return selected['url'], episode_list
 
 def _search_and_select(plugin, query, key_source=None, out=None, shortcuts=None):
-  """Search → pick title → fetch episode list.
-
-  Returns (url, episode_list), a shortcut action string ('provider'/'quit'/...),
-  'abort' when the user bails, or None when nothing is found.
-
-  query=None → live fuzzy search over the cached full catalog (TUI mode).
-  query given → network search (one-shot CLI mode).
-  """
+  # Search → pick title → fetch episode list.
+  # Returns (url, episode_list), a shortcut action string ('provider'/'quit'/...),
+  # 'abort' when the user bails, or None when nothing is found.
+  # query=None → live fuzzy search over the cached full catalog (TUI mode).
+  # query given → network search (one-shot CLI mode).
   if query is None:
     return _catalog_select(plugin, key_source=key_source, out=out, shortcuts=shortcuts)
 
@@ -534,7 +543,7 @@ def _tui_loop():
 
 
 def _one_shot_mode(query, provider, mode):
-  """One-shot search → play or download → exit."""
+  # One-shot search → play or download → exit.
   print_banner()
 
   try:
