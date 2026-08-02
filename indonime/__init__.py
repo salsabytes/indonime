@@ -124,20 +124,19 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
           if stream is None:
             server_url = None
             continue
-          path, ready, stop, dl_thread, bytes_counter, file_size = stream
+          path, ready, stop, dl_thread, bytes_counter, _ = stream
         except Exception as e:
           print_error(f"Gagal Streaming: {e}")
           time.sleep(3)
           server_url = None
           continue
 
-      with make_progress_bar(show_size=True) as p:
-        task = p.add_task("📥 Buffering stream...", total=file_size or None)
+      with make_progress_bar() as p:
+        p.add_task("📥 Buffering stream...", total=None)
         _stall_t0 = time.time()
         _last_bytes = 0
         while not ready.is_set():
           done = bytes_counter[0]
-          p.update(task, completed=done)
           if done != _last_bytes:  # still making progress → reset the stall timer
             _last_bytes = done
             _stall_t0 = time.time()
@@ -325,6 +324,7 @@ def _episode_nav(episode_list, plugin, back_label='<< BACK',
         if picks == "pilih semua":
           picks = set(range(len(ep_labels)))
         if picks:
+          print_header("⬇ DOWNLOADING", "⬇")
           quality = None
           ok = fail = 0
           total_bytes = 0
@@ -354,6 +354,7 @@ def _episode_nav(episode_list, plugin, back_label='<< BACK',
 
     idx = sel
     if mode == 'download':
+      print_header("⬇ DOWNLOADING", "⬇")
       _download_episode(episode_list[idx]['title'], episode_list[idx]['url'], plugin,
                         key_source=key_source, out=out)
       time.sleep(2)
