@@ -95,7 +95,7 @@ Punya ide keren? Buka [Discussions](https://github.com/salsabytes/indonime/discu
 
 - **Python 3.10+**
 - **Git**
-- **mpv** (akan diinstall otomatis kalau belum ada — `python setup_mpv.py`)
+- **mpv** (akan diinstall otomatis kalau belum ada)
 - Sekitar 50MB ruang kosong
 
 ### Langkah
@@ -204,7 +204,7 @@ def search_anime(query: str, provider: str = "otakudesu") -> list[dict]:
 - **Error handling** — jangan `except: pass`, minimal log atau raise specific exception
 - **Logging** — ganti `print()` dengan `logging` atau `rich.print()` untuk yang kritis
 - **Import order**: stdlib → third-party → local
-- **Jangan** commit file temp (`__pycache__/`, `stream_cache.mp4`, `.venv/`, dll)
+- **Jangan** commit file temp (`__pycache__/`, `.venv/`, dll)
 
 ---
 
@@ -322,10 +322,9 @@ def test_mpv_path_handling():
 | Masalah | Solusi |
 |---|---|
 | `ModuleNotFoundError` | Jalanin `pip install -e .` dulu |
-| mpv gak kedetek | `python setup_mpv.py` atau install manual |
+| mpv gak kedetek | Jalankan app — mpv auto-install, atau install manual |
 | Link Mega gagal decrypt | Pastikan link valid; cek log di `ext/megaNZ.py` |
 | Provider berubah struktur HTML | Update scraper — tinggal follow pattern yang ada |
-| `stream_cache.mp4` numpuk | Jalanin `rm stream_cache.mp4` — atau cleanup otomatis |
 
 ### Debugging
 

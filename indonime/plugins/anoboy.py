@@ -1,5 +1,5 @@
 # Anoboy provider: search, episodes, download links.
-from ._base import fetch_soup, cached, safe
+from ._base import catalog_links, fetch_soup, cached, safe
 
 BASE = 'https://anoboy7.com'
 
@@ -18,17 +18,7 @@ def search_anime(query):
 @safe([])
 # Full catalog — live fuzzy search source. Cached by _get_catalog, not here.
 def list_all():
-  soup = fetch_soup(f'{BASE}/anime-list/')
-  seen = set()
-  out = []
-  for a in soup.find_all('a', href=True):
-    href = a['href']
-    if '/anime/' not in href or href in seen:
-      continue
-    seen.add(href)
-    url = href if href.startswith('http') else BASE + href
-    out.append({'title': a.get_text(' ', strip=True), 'url': url})
-  return out
+  return catalog_links(fetch_soup(f'{BASE}/anime-list/'), BASE)
 
 
 @safe([])

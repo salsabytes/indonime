@@ -1,5 +1,5 @@
 # Otakudesu provider: search, episodes, download links.
-from ._base import fetch_soup, cached, safe
+from ._base import catalog_links, fetch_soup, cached, safe
 
 BASE = 'https://otakudesu.blog'
 
@@ -18,15 +18,7 @@ def search_anime(query):
 @safe([])
 # Full catalog — live fuzzy search source. Cached by _get_catalog, not here.
 def list_all():
-  soup = fetch_soup(f'{BASE}/anime-list/')
-  seen = set()
-  out = []
-  for a in soup.find_all('a', href=True):
-    url = a['href']
-    if '/anime/' in url and url not in seen:
-      seen.add(url)
-      out.append({'title': a.get_text(' ', strip=True), 'url': url})
-  return out
+  return catalog_links(fetch_soup(f'{BASE}/anime-list/'), BASE)
 
 
 @safe([])
