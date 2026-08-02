@@ -16,8 +16,7 @@ def search_anime(query):
 
 
 @safe([])
-@cached(ttl=600)
-# Full catalog — live fuzzy search source.
+# Full catalog — live fuzzy search source. Cached by _get_catalog, not here.
 def list_all():
   soup = fetch_soup(f'{BASE}/anime-list/')
   seen = set()

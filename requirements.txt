@@ -1,4 +1,3 @@
 beautifulsoup4
 cryptography>=49.0.0
-rich
 tuiko>=0.1.2

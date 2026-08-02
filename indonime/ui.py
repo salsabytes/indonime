@@ -2,9 +2,6 @@
 import sys
 
 from tuiko import grad, sep, strip_ansi, style, term_width, theme
-from rich.console import Console
-from rich.progress import (BarColumn, DownloadColumn, Progress, SpinnerColumn,
-                           TaskProgressColumn, TextColumn, TimeElapsedColumn)
 
 # Windows pipes default to cp1252 which can't encode emoji — force UTF-8 so
 # plain print() never crashes (real console + tuiko frames are unaffected).
@@ -27,7 +24,6 @@ class Palette:
   text      = 255
   dim       = 239
   surface   = 236
-  highlight = 122   # teal
 
 BANNER_TITLE = "INDONIME"
 BANNER_SUB = "Subtitle Indonesia Anime Searcher — cari · tonton · nikmati"
@@ -109,25 +105,3 @@ def make_footer():
   print(" " * max((w - len(strip_ansi(line))) // 2, 0) + line)
   print()
 
-
-# Loading bar (pre-tuiko rich design)
-console = Console()
-
-# Styled loading/progress bar — spinner, bar, pct, elapsed.
-#
-# Usage:
-#   with make_progress_bar() as progress:
-#     task = progress.add_task("...", total=100)
-def make_progress_bar(show_size=False):
-  columns = [
-    SpinnerColumn(spinner_name="dots", style="#00d4ff"),
-    TextColumn("[progress.description]{task.description}", style="#d1d5db"),
-    BarColumn(bar_width=None, style="#1f2937",
-              complete_style="#00d4ff", pulse_style="#a855f7"),
-  ]
-  if show_size:
-    columns.append(DownloadColumn(binary_units=True))
-  columns.append(TaskProgressColumn(text_format="{task.percentage:>3.0f}%",
-                                    style="#d1d5db"))
-  columns.append(TimeElapsedColumn())
-  return Progress(*columns, console=console, expand=True, transient=True)

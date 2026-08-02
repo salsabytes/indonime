@@ -31,7 +31,7 @@ def _mega_fid(url):
 
 
 # moov before mdat → the MP4 header is up front → mpv can play a still-growing file.
-# 4-byte scan over the first ~early_mb MB; a random 'moov' inside mdat data is a
+# 4-byte scan over the first ~_EARLY_MB MB; a random 'moov' inside mdat data is a
 # ~0.05% chance, and worst case mpv just fails cleanly → the user retries.
 def _is_faststart(early):
   moov = early.find(b'moov')
@@ -55,6 +55,7 @@ _HEAD_SCAN = 64 * 1024         # decrypted head sniffed to locate ftyp/mdat
 _TAIL_SCAN = 4 * 1024 * 1024   # decrypted tail scanned for moov
 _MID_CHUNK = 4 * 1024 * 1024   # range-stream chunk size for the mdat body
 _MIN_SIZE = 1024 * 1024        # below this, sequential full download is instant anyway
+_EARLY_MB = 8                  # MP4 moov scan window cap for the sequential fallback
 
 
 # Decrypt ciphertext starting at byte `offset` (16-aligned).
@@ -271,7 +272,7 @@ def _run_prefetch(resp, q, stop):
 # full download (mpv opens when the file is complete).
 # moov must sit inside the last _TAIL_SCAN bytes; an oversized moov (>4MB,
 # rare) falls back to full-download-then-play.
-def resolve_mega_file_stream(url, file_id, early_mb=8):
+def resolve_mega_file_stream(url, file_id):
   parsed = _parse_mega_url(url)
   if parsed is None:
     print(style("✘ Gagal parse key MEGA", Palette.error))
@@ -286,7 +287,7 @@ def resolve_mega_file_stream(url, file_id, early_mb=8):
 
   ready = threading.Event()
   stop = threading.Event()
-  early_bytes = early_mb * 1024 * 1024  # MP4 moov scan window cap
+  early_bytes = _EARLY_MB * 1024 * 1024  # MP4 moov scan window cap
   mkv_floor = 2 * 1024 * 1024           # MKV EBML header is tiny; stream after this
   _fmt = [None]  # mutable for closure: 'mp4' or 'mkv'
   bytes_counter = [0]  # shared counter for 0-100% progress

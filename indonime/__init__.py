@@ -9,17 +9,23 @@ import time
 
 from . import player
 from .ui import (
-  banner_header, make_progress_bar, print_banner, print_header, print_step,
+  banner_header, print_banner, print_header, print_step,
   print_success, print_error, print_warning, print_separator,
   make_postplay_actions, make_footer,
 )
 
 from . import plugins
-from tuiko import multiselect, prompt, select, session
-from rich.filesize import decimal as _fmt_size
+from tuiko import multiselect, progress, prompt, select, session
 from .ext import pdrain, megaNZ
 from .ext.megaNZ import _mega_fid, _mega_key
 from .plugins._base import http_stream, resolve_url
+
+# Human-readable byte size (replacement for rich.filesize.decimal).
+def _fmt_size(n):
+  for unit in ("B", "KB", "MB", "GB"):
+    if n < 1024 or unit == "GB":
+      return f"{n:.2f} {unit}"
+    n /= 1024
 
 # Compatible server prefixes
 _COMPATIBLE = {'pdrain', 'pixeldrain', 'mega'}
@@ -72,8 +78,7 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
   # Resolve stream and play. Returns (success, server_url).
   while True:
     if server_url is None:
-      with make_progress_bar() as p:
-        p.add_task("🔍 Resolving stream...", total=None)
+      with progress("🔍 Resolving stream...", out=out):
         dl_links = plugin.downloads(episode_url)
 
       options = _compatible_servers(dl_links)
@@ -94,8 +99,7 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
     final_target = None
 
     if 'mega' in server_url.lower() or 'mega' in last_selected_server_name.lower():
-      with make_progress_bar() as p:
-        p.add_task("🔓 Resolving Mega link...", total=None)
+      with progress("🔓 Resolving Mega link...", out=out):
         try:
           curr = resolve_url(server_url, timeout=15)
           if ("mega.nz" in curr or "mega.co.nz" in curr) and "#" in curr:
@@ -131,11 +135,11 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
           server_url = None
           continue
 
-      with make_progress_bar() as p:
-        p.add_task("📥 Buffering stream...", total=None)
+      with progress("📥 Buffering stream...", out=out) as up:
         _stall_t0 = time.time()
         _last_bytes = 0
         while not ready.is_set():
+          up(None)  # spin the indicator while waiting
           done = bytes_counter[0]
           if done != _last_bytes:  # still making progress → reset the stall timer
             _last_bytes = done
@@ -158,8 +162,7 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
       return True, final_mega_url
 
     else:
-      with make_progress_bar() as p:
-        p.add_task("🌀 Bypassing PixelDrain link...", total=None)
+      with progress("🌀 Bypassing PixelDrain link...", out=out):
         final_target = pdrain.scrape(server_url)
 
       if final_target:
@@ -184,8 +187,7 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
 
   # Resolve server URL if not pre-resolved
   if server_url is None:
-    with make_progress_bar() as p:
-      p.add_task("🔍 Resolving download links...", total=None)
+    with progress("🔍 Resolving download links...", out=out):
       dl_links = plugin.downloads(episode_url)
 
     options = _compatible_servers(dl_links)
@@ -233,12 +235,11 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
       path, ready, stop, dl_thread, bytes_counter, file_size = stream
 
       # Wait for full download
-      with make_progress_bar(show_size=True) as p:
-        task = p.add_task(f"⬇ Downloading {safe}...", total=file_size)
+      with progress(f"⬇ Downloading {safe}...", total=file_size, out=out) as up:
         while not ready.is_set():
           time.sleep(0.15)
-          p.update(task, completed=bytes_counter[0])
-        p.update(task, completed=file_size)
+          up(bytes_counter[0])
+        up(file_size)
         dl_thread.join(timeout=600)
         if dl_thread.is_alive():
           print_warning("Download timed out (>10 min).")
@@ -265,8 +266,7 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
   else:
     # PixelDrain — download stream
     try:
-      with make_progress_bar() as p:
-        p.add_task("🌀 Bypassing PixelDrain link...", total=None)
+      with progress("🌀 Bypassing PixelDrain link...", out=out):
         final_url = pdrain.scrape(server_url)
       if not final_url:
         print_error("Stream not available.")
@@ -277,8 +277,7 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
       with http_stream(final_url, timeout=30) as resp:
         total = int(resp.headers.get('Content-Length', 0))
 
-        with make_progress_bar(show_size=True) as p:
-          task = p.add_task(f"⬇ Downloading {safe}...", total=total or None)
+        with progress(f"⬇ Downloading {safe}...", total=total or None, out=out) as up:
           with open(dest, 'wb') as f:
             while True:
               chunk = resp.read(64 * 1024)
@@ -287,7 +286,7 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
               f.write(chunk)
               size += len(chunk)
               if total:
-                p.update(task, advance=len(chunk))
+                up(size)
     except Exception as e:
       print_error(f"Download failed: {e}")
       return None, 0, f"Download failed: {e}"
@@ -423,8 +422,7 @@ def _get_catalog(plugin):
   hit = _CATALOG_CACHE.get(name)
   if hit and now - hit[0] < 600:
     return hit[1]
-  with make_progress_bar() as p:
-    p.add_task("Loading catalog...", total=None)
+  with progress("Loading catalog..."):
     catalog = plugin.list_all()
   if catalog:
     _CATALOG_CACHE[name] = (now, catalog)
@@ -439,7 +437,7 @@ def _catalog_select(plugin, key_source=None, out=None, shortcuts=None):
   catalog = _get_catalog(plugin)
 
   if not catalog:
-    return None
+    return 'provider-down'  # load failed or provider is down — not "no results"
 
   titles = [item['title'] for item in catalog] + ['↩  -- ABORT --']
   sel = select("📺  Cari anime:", titles, search=True, fuzzy=True,
@@ -452,8 +450,7 @@ def _catalog_select(plugin, key_source=None, out=None, shortcuts=None):
     return 'abort'  # user bailed (escape / ABORT sentinel) — back to search silently
 
   selected = catalog[sel]
-  with make_progress_bar() as p:
-    p.add_task("Fetching episode list...", total=None)
+  with progress("Fetching episode list...", out=out):
     episode_list = plugin.episodes(selected['url'])
 
   if not episode_list:
@@ -471,8 +468,7 @@ def _search_and_select(plugin, query, key_source=None, out=None, shortcuts=None)
     return _catalog_select(plugin, key_source=key_source, out=out, shortcuts=shortcuts)
 
   print_header("🔎 SEARCHING", "🔎")
-  with make_progress_bar() as p:
-    p.add_task("Searching...", total=None)
+  with progress("Searching...", out=out):
     results = plugin.search_anime(query)
 
   if not results:
@@ -491,8 +487,7 @@ def _search_and_select(plugin, query, key_source=None, out=None, shortcuts=None)
     if item['title'] == selected_title
   )
 
-  with make_progress_bar() as p:
-    p.add_task("Fetching episode list...", total=None)
+  with progress("Fetching episode list...", out=out):
     episode_list = plugin.episodes(selected_url)
 
   if not episode_list:
@@ -521,6 +516,9 @@ def _tui_loop():
         sel = select("📡  Select provider:", available_providers, header=banner_header())
         if sel is not None:
           p_name = available_providers[sel]
+      elif hit == 'provider-down':
+        print_warning("Catalog load failed — the site may be down. Try again or press ctrl-b to switch provider.")
+        time.sleep(2)
       elif hit == 'quit' or hit == 'abort':
         break  # quit shortcut, or escape/ABORT with no menu left → leave
       # unknown action → just re-run the search
