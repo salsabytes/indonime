@@ -1,7 +1,15 @@
-# Banner, headers, status messages — tuiko-based (no rich / InquirerPy / pyfiglet).
+# Banner, headers, status messages — tuiko-based; rich hanya untuk loading bar.
 import sys
+from contextlib import contextmanager
 
 from tuiko import grad, sep, strip_ansi, style, term_width, theme
+from rich.console import Console
+from rich.progress import (
+  BarColumn, DownloadColumn, Progress, SpinnerColumn,
+  TaskProgressColumn, TextColumn, TimeElapsedColumn,
+)
+
+console = Console()
 
 # Windows pipes default to cp1252 which can't encode emoji — force UTF-8 so
 # plain print() never crashes (real console + tuiko frames are unaffected).
@@ -80,6 +88,53 @@ def print_separator():
   print()
   print(sep(max(term_width() - 2, 10), color=Palette.surface))
   print()
+
+
+# Loading bar — rich, persis tampilan indonime dulu (baris garis, bukan blok).
+def make_progress_bar(transient=True, show_size=False, out=None):
+  # Usage:
+  #   with make_progress_bar() as p:
+  #     task = p.add_task("...", total=100)
+  columns = [
+    SpinnerColumn(spinner_name="dots", style="#00d4ff"),
+    TextColumn(
+      "[progress.description]{task.description}",
+      style="#d1d5db",
+    ),
+    BarColumn(
+      bar_width=None,
+      style="#1f2937",
+      complete_style="#00d4ff",
+      pulse_style="#a855f7",
+    ),
+  ]
+  if show_size:
+    columns.append(DownloadColumn(binary_units=True))
+  columns.append(TaskProgressColumn(
+    text_format="{task.percentage:>3.0f}%",
+    style="#d1d5db",
+  ))
+  columns.append(TimeElapsedColumn())
+
+  c = Console(file=out) if out else console
+  return Progress(
+    *columns,
+    console=c,
+    expand=True,
+    transient=transient,
+  )
+
+
+# Wrapper ber-API sama dengan tuiko progress: `with progress(desc, total) as up:`
+# up(completed) untuk determinate, up(None) dibiarkan (indeterminate = garis pulse).
+@contextmanager
+def progress(desc, total=None, *, out=None, show_size=False):
+  with make_progress_bar(show_size=show_size, out=out) as p:
+    task = p.add_task(desc, total=total)
+    def up(completed):
+      if completed is not None:
+        p.update(task, completed=completed)
+    yield up
 
 
 # Post-play menu

@@ -1,4 +1,4 @@
-# search → select → play — tuiko-powered (no rich / InquirerPy / pyfiglet).
+# search → select → play — tuiko-powered (rich hanya untuk loading bar).
 import argparse
 import importlib
 import json
@@ -11,11 +11,11 @@ from . import player
 from .ui import (
   banner_header, print_banner, print_header, print_step,
   print_success, print_error, print_warning, print_separator,
-  make_postplay_actions, make_footer,
+  make_postplay_actions, make_footer, progress,
 )
 
 from . import plugins
-from tuiko import multiselect, progress, prompt, select, session
+from tuiko import multiselect, prompt, select, session
 from .ext import pdrain, megaNZ
 from .ext.megaNZ import _mega_fid, _mega_key
 from .plugins._base import http_stream, resolve_url
@@ -128,7 +128,7 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
           if stream is None:
             server_url = None
             continue
-          path, ready, stop, dl_thread, bytes_counter, _ = stream
+          path, ready, stop, dl_thread, bytes_counter, file_size = stream
         except Exception as e:
           print_error(f"Gagal Streaming: {e}")
           time.sleep(3)
@@ -139,7 +139,7 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
         _stall_t0 = time.time()
         _last_bytes = 0
         while not ready.is_set():
-          up(None)  # spin the indicator while waiting
+          up(bytes_counter[0])  # show real byte progress while waiting
           done = bytes_counter[0]
           if done != _last_bytes:  # still making progress → reset the stall timer
             _last_bytes = done
