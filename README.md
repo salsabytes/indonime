@@ -80,11 +80,16 @@ pip install indonime
 ```bash
 git clone https://github.com/salsabytes/indonime
 cd indonime
+
+# Pakai uv (punya uv.lock → versi ke-kunci persis):
+uv sync
+
+# atau pakai pip biasa:
 pip install -e .
 python main.py
 ```
 
-> **Tips:** `pip install -e .` bikin kamu bisa panggil `indonime` dari mana aja.
+> **Tips:** `uv sync` / `pip install -e .` bikin kamu bisa panggil `indonime` dari mana aja. Ubah kode → langsung jalan, nggak perlu install ulang.
 
 <br>
 
