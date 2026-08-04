@@ -13,7 +13,6 @@ from ..plugins._base import HEADERS, http_post_json, http_stream
 
 # AES via cryptography (hard dep)
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
 
 
 def mega_base64_decode(data):
@@ -64,8 +63,7 @@ _EARLY_MB = 8                  # MP4 moov scan window cap for the sequential fal
 # matches sequential play byte-for-byte.
 def _decrypt_range(k, iv, cipher, offset):
   init = int.from_bytes(iv, 'big') + (offset // 16)
-  d = Cipher(algorithms.AES(k), modes.CTR(init.to_bytes(16, 'big')),
-             backend=default_backend()).decryptor()
+  d = Cipher(algorithms.AES(k), modes.CTR(init.to_bytes(16, 'big'))).decryptor()
   return d.update(cipher)
 
 
@@ -218,8 +216,7 @@ def _mega_key(url):
 # Parse a MEGA URL → (key, iv).
 def _parse_mega_url(url):
   try:
-    parts = url.split("#")
-    encoded_key = parts[1]
+    encoded_key = _mega_key(url)
     full_key = mega_base64_decode(encoded_key)
     k = bytes(full_key[i] ^ full_key[i + 16] for i in range(16))
     iv = full_key[16:24] + b"\x00" * 8
@@ -331,7 +328,7 @@ def resolve_mega_file_stream(url, file_id):
         downloaded = 0
         _first_dec = None
         early_buf = b''  # decrypted bytes up to early_bytes → faststart MP4 check
-        c = Cipher(algorithms.AES(k), modes.CTR(iv), backend=default_backend())
+        c = Cipher(algorithms.AES(k), modes.CTR(iv))
         d = c.decryptor()
         while True:
           chunk = chunk_queue.get()

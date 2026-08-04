@@ -1,15 +1,7 @@
-# Banner, headers, status messages — tuiko-based; rich hanya untuk loading bar.
+# Banner, headers, status messages — tuiko-based; loading bar juga dari tuiko.
 import sys
-from contextlib import contextmanager
 
-from tuiko import grad, sep, strip_ansi, style, term_width, theme
-from rich.console import Console
-from rich.progress import (
-  BarColumn, DownloadColumn, Progress, SpinnerColumn,
-  TaskProgressColumn, TextColumn, TimeElapsedColumn,
-)
-
-console = Console()
+from tuiko import grad, progress, sep, strip_ansi, style, term_width, theme
 
 # Windows pipes default to cp1252 which can't encode emoji — force UTF-8 so
 # plain print() never crashes (real console + tuiko frames are unaffected).
@@ -21,17 +13,19 @@ for _s in (sys.stdout, sys.stderr):
       pass
 
 class Palette:
+  # Warna brand yang gak ada di tuiko.theme; sisanya ikut theme biar
+  # satu sumber kebenaran (kalau tuiko.theme berubah, indonime ikut).
   primary   = 117   # sky cyan
-  secondary = 213   # bright pink/purple
   accent    = 220   # gold
-  success   = 114   # green
   error     = 203   # red
   warning   = 214   # orange
-  muted     = 245
-  border    = 141
-  text      = 255
-  dim       = 239
-  surface   = 236
+  secondary = theme.accent_bright   # bright pink/purple
+  success   = theme.success
+  muted     = theme.muted
+  border    = theme.border
+  text      = theme.text
+  dim       = theme.faint
+  surface   = theme.dim_bg
 
 BANNER_TITLE = "INDONIME"
 BANNER_SUB = "Subtitle Indonesia Anime Searcher — cari · tonton · nikmati"
@@ -52,7 +46,6 @@ def print_banner():
   print()
 
 
-# Section header
 # Styled section header.
 def print_header(title: str, icon: str = ""):
   print()
@@ -90,55 +83,7 @@ def print_separator():
   print()
 
 
-# Loading bar — rich, persis tampilan indonime dulu (baris garis, bukan blok).
-def make_progress_bar(transient=True, show_size=False, out=None):
-  # Usage:
-  #   with make_progress_bar() as p:
-  #     task = p.add_task("...", total=100)
-  columns = [
-    SpinnerColumn(spinner_name="dots", style="#00d4ff"),
-    TextColumn(
-      "[progress.description]{task.description}",
-      style="#d1d5db",
-    ),
-    BarColumn(
-      bar_width=None,
-      style="#1f2937",
-      complete_style="#00d4ff",
-      pulse_style="#a855f7",
-    ),
-  ]
-  if show_size:
-    columns.append(DownloadColumn(binary_units=True))
-  columns.append(TaskProgressColumn(
-    text_format="{task.percentage:>3.0f}%",
-    style="#d1d5db",
-  ))
-  columns.append(TimeElapsedColumn())
-
-  c = Console(file=out) if out else console
-  return Progress(
-    *columns,
-    console=c,
-    expand=True,
-    transient=transient,
-  )
-
-
-# Wrapper ber-API sama dengan tuiko progress: `with progress(desc, total) as up:`
-# up(completed) untuk determinate, up(None) dibiarkan (indeterminate = garis pulse).
-@contextmanager
-def progress(desc, total=None, *, out=None, show_size=False):
-  with make_progress_bar(show_size=show_size, out=out) as p:
-    task = p.add_task(desc, total=total)
-    def up(completed):
-      if completed is not None:
-        p.update(task, completed=completed)
-    yield up
-
-
-# Post-play menu
-# Context-aware post-play command list.
+# Post-play menu: context-aware command list.
 def make_postplay_actions(current_idx: int, total: int) -> list[str]:
   actions = []
   if current_idx + 1 < total:
@@ -151,7 +96,6 @@ def make_postplay_actions(current_idx: int, total: int) -> list[str]:
   return actions
 
 
-# Footer
 # Clean centered footer.
 def make_footer():
   print()
@@ -159,4 +103,3 @@ def make_footer():
   line = f"  ✦  {style('Indonime', 1, Palette.secondary)}  —  made with love for anime fans  ✦"
   print(" " * max((w - len(strip_ansi(line))) // 2, 0) + line)
   print()
-

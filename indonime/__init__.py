@@ -1,4 +1,4 @@
-# search → select → play — tuiko-powered (rich hanya untuk loading bar).
+# search → select → play — tuiko-powered.
 import argparse
 import importlib
 import json
@@ -18,9 +18,9 @@ from . import plugins
 from tuiko import multiselect, prompt, select, session
 from .ext import pdrain, megaNZ
 from .ext.megaNZ import _mega_fid, _mega_key
-from .plugins._base import http_stream, resolve_url
+from .plugins._base import cache_clear, cached, http_download, resolve_url
 
-# Human-readable byte size (replacement for rich.filesize.decimal).
+# Human-readable byte size (1024-based).
 def _fmt_size(n):
   for unit in ("B", "KB", "MB", "GB"):
     if n < 1024 or unit == "GB":
@@ -114,10 +114,6 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
           server_url = None
           continue
 
-        if not final_mega_url:
-          print_error("Timeout: Gagal mendapatkan link Mega.")
-          server_url = None
-          continue
         try:
           final_mega_url, f_id = _mega_fid(final_mega_url)
           if f_id is None:
@@ -175,7 +171,7 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
 
 
 # Download episode
-def _download_episode(episode_title, episode_url, plugin, server_url=None, server_name=None,
+def _download_episode(episode_title, episode_url, plugin,
                       key_source=None, out=None, quality=None):
   # Download one episode. Returns (quality_label, bytes, reason).
   # quality == _CANCEL when the user bails; quality None + reason on failure;
@@ -185,28 +181,27 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
   downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
   os.makedirs(downloads_dir, exist_ok=True)
 
-  # Resolve server URL if not pre-resolved
-  if server_url is None:
-    with progress("🔍 Resolving download links...", out=out):
-      dl_links = plugin.downloads(episode_url)
+  # Resolve server URL + pick quality (caller never pre-resolves)
+  with progress("🔍 Resolving download links...", out=out):
+    dl_links = plugin.downloads(episode_url)
 
-    options = _compatible_servers(dl_links)
+  options = _compatible_servers(dl_links)
 
-    if not options:
-      print_warning("No compatible download sources found.")
-      return None, 0, "No compatible download sources found."
+  if not options:
+    print_warning("No compatible download sources found.")
+    return None, 0, "No compatible download sources found."
 
-    labels = [o[0] for o in options]
-    if quality is not None and quality in labels:
-      sel = labels.index(quality)  # reuse same quality — no prompt
-    else:
-      sel = select("📥  Select quality & server:", labels,
-                   key_source=key_source, out=out, header=banner_header())
-      if sel is None:
-        return _CANCEL, 0, "Dibatalkan"
-      quality = labels[sel]
+  labels = [o[0] for o in options]
+  if quality is not None and quality in labels:
+    sel = labels.index(quality)  # reuse same quality — no prompt
+  else:
+    sel = select("📥  Select quality & server:", labels,
+                 key_source=key_source, out=out, header=banner_header())
+    if sel is None:
+      return _CANCEL, 0, "Dibatalkan"
+    quality = labels[sel]
 
-    server_name, server_url = options[sel]
+  server_name, server_url = options[sel]
 
   if 'mega' in server_url.lower() or (server_name and 'mega' in server_name.lower()):
     # Follow redirect to get final Mega URL
@@ -275,20 +270,7 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
         return None, 0, "Stream not available."
 
       dest = os.path.join(downloads_dir, f"{safe}.mp4")
-      size = 0
-      with http_stream(final_url, timeout=30) as resp:
-        total = int(resp.headers.get('Content-Length', 0))
-
-        with progress(f"⬇ Downloading {safe}...", total=total or None, out=out) as up:
-          with open(dest, 'wb') as f:
-            while True:
-              chunk = resp.read(64 * 1024)
-              if not chunk:
-                break
-              f.write(chunk)
-              size += len(chunk)
-              if total:
-                up(size)
+      size = http_download(final_url, dest, f"⬇ Downloading {safe}...", out=out)
     except Exception as e:
       print_error(f"Download failed: {e}")
       return None, 0, f"Download failed: {e}"
@@ -349,7 +331,6 @@ def _episode_nav(episode_list, plugin, back_label='<< BACK',
             time.sleep(2)  # let the message be read before the list re-renders
       continue
     if sel is None or sel == len(labels) - 1:
-      from .plugins._base import cache_clear
       cache_clear()
       return 'back'
 
@@ -414,21 +395,12 @@ _SHORTCUTS = {
   "ctrl-b": "provider",
 }
 
-# Catalog cache
-_CATALOG_CACHE = {}  # plugin module name -> (ts, catalog)
-
+# Catalog cache: list_all() is big (845KB) — keep it cached persistently so
+# back-navigation doesn't refetch. Keyed per plugin module via cached().
+@cached(ttl=600, persist=True)
 def _get_catalog(plugin):
-  # Module-level cache that survives cache_clear() (no 845KB refetch on back).
-  name = getattr(plugin, '__name__', type(plugin).__name__)
-  now = time.time()
-  hit = _CATALOG_CACHE.get(name)
-  if hit and now - hit[0] < 600:
-    return hit[1]
   with progress("Loading catalog..."):
-    catalog = plugin.list_all()
-  if catalog:
-    _CATALOG_CACHE[name] = (now, catalog)
-  return catalog
+    return plugin.list_all()
 
 # Search and select helper
 def _catalog_select(plugin, key_source=None, out=None, shortcuts=None):

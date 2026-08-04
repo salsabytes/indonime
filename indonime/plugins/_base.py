@@ -49,33 +49,58 @@ def resolve_url(url, timeout=15):
   with _open(url, timeout) as r:
     return r.geturl()
 
+# Download url → dest in 64KB chunks with a tuiko progress bar; returns bytes.
+def http_download(url, dest, desc, timeout=30, out=None):
+  from ..ui import progress
+  with http_stream(url, timeout=timeout) as resp:
+    total = int(resp.headers.get('Content-Length', 0))
+    with progress(desc, total=total or None, out=out) as up:
+      size = 0
+      with open(dest, 'wb') as f:
+        while True:
+          chunk = resp.read(64 * 1024)
+          if not chunk:
+            break
+          f.write(chunk)
+          size += len(chunk)
+          if total:
+            up(size)
+  return size
+
 _CACHE = {}
 _CACHE_AT = {}
+_PERSIST = set()  # keys that survive cache_clear() — the big catalog
 
 # Memoize with a TTL in seconds. Skips caching empty results.
-def cached(ttl=300):
+# persist=True → the entry survives cache_clear() (used for the catalog).
+def cached(ttl=300, persist=False):
   def dec(fn):
     def wrap(*args, **kwargs):
-      key = (fn.__module__, fn.__name__, args, tuple(sorted(kwargs.items())))
+      key = (fn.__module__, fn.__name__, args)
       now = time.time()
       val = _CACHE.get(key)
       if val is not None and now - _CACHE_AT.get(key, 0) < ttl:
         return val
       val = fn(*args, **kwargs)
-      if val is not None and val != [] and val != {}:
+      if val not in (None, [], {}):
         _CACHE[key] = val
         _CACHE_AT[key] = now
+        if persist:
+          _PERSIST.add(key)
       return val
     return wrap
   return dec
 
 def cache_clear():
-  _CACHE.clear()
-  _CACHE_AT.clear()
+  # Transient entries die; persistent (catalog) entries stay.
+  for k in list(_CACHE):
+    if k not in _PERSIST:
+      del _CACHE[k]
+      del _CACHE_AT[k]
 
 # GET url → BeautifulSoup. Raises on failure.
-def fetch_soup(url, headers=HEADERS, timeout=15):
-  _, _, _, body = http_get(url, timeout=timeout, headers=headers)
+def fetch_soup(url, timeout=15):
+  _, _, _, body = http_get(url, timeout=timeout, headers=HEADERS)
   return BeautifulSoup(body.decode('utf-8', 'replace'), 'html.parser')
 
 # Parse anime links from an /anime-list/ page: dedupe, keep /anime/ hrefs,

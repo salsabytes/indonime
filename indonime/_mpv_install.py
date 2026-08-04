@@ -4,8 +4,8 @@ import sys
 import shutil
 import subprocess
 from pathlib import Path
-from tuiko import progress, style
-from .plugins._base import http_stream
+from tuiko import style
+from .plugins._base import http_download
 from .ui import Palette
 
 if sys.platform == "win32":
@@ -18,16 +18,7 @@ MPV_DIR = BASE / "mpv"
 def _download(url, dest, desc="Downloading"):
   dest = Path(dest)
   try:
-    with http_stream(url, timeout=60) as resp:
-      total = int(resp.headers.get("Content-Length", 0))
-      with progress(desc, total=total or None) as up:
-        done = 0
-        with open(dest, "wb") as f:
-          for chunk in iter(lambda: resp.read(64 * 1024), b""):
-            f.write(chunk)
-            done += len(chunk)
-            if total:
-              up(done)
+    http_download(url, dest, desc, timeout=60)
     return True
   except Exception as e:
     print(style(f"✘ Download failed: {e}", Palette.error))
