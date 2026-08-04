@@ -234,17 +234,19 @@ def _download_episode(episode_title, episode_url, plugin, server_url=None, serve
         return None, 0, "Gagal resolve stream Mega"
       path, ready, stop, dl_thread, bytes_counter, file_size = stream
 
-      # Wait for full download
+      # Wait for full download. `ready` itu penanda streaming (moov awal sudah
+      # kebuffer → mpv bisa buka), BUKAN penanda download tuntas — makanya bar
+      # pernah nempel 100% di awal. Yang benar: nunggu thread download mati.
       with progress(f"⬇ Downloading {safe}...", total=file_size, out=out) as up:
-        while not ready.is_set():
+        t0 = time.time()
+        while dl_thread.is_alive():
+          if time.time() - t0 > 600:
+            print_warning("Download timed out (>10 min).")
+            stop.set()
+            return None, 0, "Download timed out (>10 min)."
           time.sleep(0.15)
           up(bytes_counter[0])
-        up(file_size)
-        dl_thread.join(timeout=600)
-        if dl_thread.is_alive():
-          print_warning("Download timed out (>10 min).")
-          stop.set()
-          return None, 0, "Download timed out (>10 min)."
+        up(bytes_counter[0])  # nilai akhir → bar tuntas di ukuran sebenarnya
       size = bytes_counter[0]
       if size != file_size:
         # the stream broke mid-way — never copy a truncated file as a "success"
