@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "indonime"
-version = "1.6.0"
+version = "1.6.1"
 description = "Subtitle Indonesia Anime Searcher - TUI application"
 readme = "README.md"
 license = "MIT"
