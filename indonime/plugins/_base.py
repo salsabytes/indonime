@@ -28,7 +28,7 @@ def _open(url, timeout, method=None, headers=None, data=None):
   if not _scheme_ok(url):
     raise ValueError(f"Non-HTTP URL blocked: {url}")
   req = urllib.request.Request(url, data=data, headers=headers or HEADERS, method=method)
-  return urllib.request.urlopen(req, timeout=timeout)
+  return urllib.request.urlopen(req, timeout=timeout)  # nosec B310: scheme guarded above
 
 # GET → (final_url, status, headers, body). Raises on HTTP/network error.
 def http_get(url, timeout=15, headers=None):

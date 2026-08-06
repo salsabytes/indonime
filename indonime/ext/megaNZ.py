@@ -150,7 +150,7 @@ def _http_range(url, start, end, timeout=30):
   try:
     req = urllib.request.Request(
       url, headers={**HEADERS, 'Range': f'bytes={start}-{end - 1}'})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310: scheme guarded above
       if r.status != 206:
         return None
       data = r.read()

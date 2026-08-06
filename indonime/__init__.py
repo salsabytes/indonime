@@ -107,7 +107,7 @@ def _play_mega(server_url, out=None):
     _stall_t0 = time.time()
     _last_bytes = 0
     while not ready.is_set():
-      up(bytes_counter[0])  # show real byte progress while waiting
+      up(bytes_counter[0])
       done = bytes_counter[0]
       if done != _last_bytes:  # still making progress → reset the stall timer
         _last_bytes = done
@@ -194,9 +194,9 @@ def _download_mega(server_url, safe, downloads_dir, out=None):
       return None, 0, "Gagal resolve stream Mega"
     path, ready, stop, dl_thread, bytes_counter, file_size = stream
 
-    # Wait for full download. `ready` itu penanda streaming (moov awal sudah
-    # kebuffer → mpv bisa buka), BUKAN penanda download tuntas — makanya bar
-    # pernah nempel 100% di awal. Yang benar: nunggu thread download mati.
+    # Wait for the full download. `ready` only means streaming (moov header
+    # buffered → mpv can open), NOT a finished download — that's why the bar
+    # used to stick at 100% early. The right signal: wait for the thread to end.
     with progress(f"⬇ Downloading {safe}...", total=file_size, out=out) as up:
       t0 = time.time()
       while dl_thread.is_alive():
@@ -206,7 +206,7 @@ def _download_mega(server_url, safe, downloads_dir, out=None):
           return None, 0, "Download timed out (>10 min)."
         time.sleep(0.15)
         up(bytes_counter[0])
-      up(bytes_counter[0])  # nilai akhir → bar tuntas di ukuran sebenarnya
+      up(bytes_counter[0])  # final value → bar ends at the real size
     size = bytes_counter[0]
     if size != file_size:
       # the stream broke mid-way — never copy a truncated file as a "success"
