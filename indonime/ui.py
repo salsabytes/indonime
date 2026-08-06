@@ -9,23 +9,23 @@ for _s in (sys.stdout, sys.stderr):
   if hasattr(_s, "reconfigure"):
     try:
       _s.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
+    except (ValueError, OSError):  # io.UnsupportedOperation: can't change encoding
       pass
 
 class Palette:
   # Warna brand yang gak ada di tuiko.theme; sisanya ikut theme biar
   # satu sumber kebenaran (kalau tuiko.theme berubah, indonime ikut).
-  primary   = 117   # sky cyan
-  accent    = 220   # gold
-  error     = 203   # red
-  warning   = 214   # orange
+  primary = 117   # sky cyan
+  accent = 220   # gold
+  error = 203   # red
+  warning = 214   # orange
   secondary = theme.accent_bright   # bright pink/purple
-  success   = theme.success
-  muted     = theme.muted
-  border    = theme.border
-  text      = theme.text
-  dim       = theme.faint
-  surface   = theme.dim_bg
+  success = theme.success
+  muted = theme.muted
+  border = theme.border
+  text = theme.text
+  dim = theme.faint
+  surface = theme.dim_bg
 
 BANNER_TITLE = "INDONIME"
 BANNER_SUB = "Subtitle Indonesia Anime Searcher — cari · tonton · nikmati"
