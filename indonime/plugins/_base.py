@@ -7,6 +7,7 @@
 import json
 import sys
 import time
+import urllib.parse
 import urllib.request
 from bs4 import BeautifulSoup
 
@@ -19,7 +20,13 @@ HEADERS = {
 }
 
 # urllib helpers (replacement for requests)
+def _scheme_ok(url):
+  # Bandit B310: only allow http(s) — never file:/ custom schemes.
+  return urllib.parse.urlparse(url).scheme in ('http', 'https')
+
 def _open(url, timeout, method=None, headers=None, data=None):
+  if not _scheme_ok(url):
+    raise ValueError(f"Non-HTTP URL blocked: {url}")
   req = urllib.request.Request(url, data=data, headers=headers or HEADERS, method=method)
   return urllib.request.urlopen(req, timeout=timeout)
 

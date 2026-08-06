@@ -74,6 +74,58 @@ def _check_history(anime_url, episode_list):
   return None
 
 # Play episode
+def _play_mega(server_url, out=None):
+  # Resolve a Mega stream + launch mpv. Returns (ok, final_mega_url).
+  with progress("🔓 Resolving Mega link...", out=out):
+    try:
+      curr = resolve_url(server_url, timeout=15)
+      if ("mega.nz" in curr or "mega.co.nz" in curr) and "#" in curr:
+        final_mega_url = curr
+      else:
+        print_error("Redirect tidak mengarah ke Mega.")
+        return False, None
+    except Exception as e:
+      print_error(f"Network Error: {e}")
+      time.sleep(3)
+      return False, None
+
+    try:
+      final_mega_url, f_id = _mega_fid(final_mega_url)
+      if f_id is None:
+        print_error("Gagal extract file ID MEGA.")
+        return False, None
+      stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id)
+      if stream is None:
+        return False, None
+      path, ready, stop, dl_thread, bytes_counter, file_size = stream
+    except Exception as e:
+      print_error(f"Gagal Streaming: {e}")
+      time.sleep(3)
+      return False, None
+
+  with progress("📥 Buffering stream...", out=out) as up:
+    _stall_t0 = time.time()
+    _last_bytes = 0
+    while not ready.is_set():
+      up(bytes_counter[0])  # show real byte progress while waiting
+      done = bytes_counter[0]
+      if done != _last_bytes:  # still making progress → reset the stall timer
+        _last_bytes = done
+        _stall_t0 = time.time()
+      elif time.time() - _stall_t0 > 60:  # 60s without progress = dead connection
+        print_warning("Download stalled (>60s tanpa progress). Cek koneksi atau retry.")
+        stop.set()  # kill the old thread before retry
+        return False, None
+      time.sleep(0.15)
+
+  print_step("🚀 Launching mpv player...")
+  player.play_with_mpv(path, is_temp_file=True, cleanup=False)
+  stop.set()
+  dl_thread.join(timeout=10)
+  if os.path.exists(path):
+    os.remove(path)
+  return True, final_mega_url
+
 def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=None):
   # Resolve stream and play. Returns (success, server_url).
   while True:
@@ -96,81 +148,99 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
     else:
       last_selected_server_name = "replay"
 
-    final_target = None
-
     if 'mega' in server_url.lower() or 'mega' in last_selected_server_name.lower():
-      with progress("🔓 Resolving Mega link...", out=out):
-        try:
-          curr = resolve_url(server_url, timeout=15)
-          if ("mega.nz" in curr or "mega.co.nz" in curr) and "#" in curr:
-            final_mega_url = curr
-          else:
-            print_error("Redirect tidak mengarah ke Mega.")
-            server_url = None
-            continue
-        except Exception as e:
-          print_error(f"Network Error: {e}")
-          time.sleep(3)
-          server_url = None
-          continue
-
-        try:
-          final_mega_url, f_id = _mega_fid(final_mega_url)
-          if f_id is None:
-            print_error("Gagal extract file ID MEGA.")
-            server_url = None
-            continue
-          stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id)
-          if stream is None:
-            server_url = None
-            continue
-          path, ready, stop, dl_thread, bytes_counter, file_size = stream
-        except Exception as e:
-          print_error(f"Gagal Streaming: {e}")
-          time.sleep(3)
-          server_url = None
-          continue
-
-      with progress("📥 Buffering stream...", out=out) as up:
-        _stall_t0 = time.time()
-        _last_bytes = 0
-        while not ready.is_set():
-          up(bytes_counter[0])  # show real byte progress while waiting
-          done = bytes_counter[0]
-          if done != _last_bytes:  # still making progress → reset the stall timer
-            _last_bytes = done
-            _stall_t0 = time.time()
-          elif time.time() - _stall_t0 > 60:  # 60s without progress = dead connection
-            print_warning("Download stalled (>60s tanpa progress). Cek koneksi atau retry.")
-            stop.set()  # kill the old thread before retry
-            server_url = None
-            break
-          time.sleep(0.15)
-        if server_url is None:
-          continue
-
-      print_step("🚀 Launching mpv player...")
-      player.play_with_mpv(path, is_temp_file=True, cleanup=False)
-      stop.set()
-      dl_thread.join(timeout=10)
-      if os.path.exists(path):
-        os.remove(path)
-      return True, final_mega_url
-
-    else:
-      with progress("🌀 Bypassing PixelDrain link...", out=out):
-        final_target = pdrain.scrape(server_url)
-
-      if final_target:
-        print_step("🚀 Launching mpv player...")
-        return player.play_with_mpv(final_target), server_url
-      else:
-        print_error("Stream tidak tersedia. Pilih resolusi lain.")
+      ok, final_mega_url = _play_mega(server_url, out=out)
+      if not ok:
         server_url = None
         continue
+      return True, final_mega_url
+
+    with progress("🌀 Bypassing PixelDrain link...", out=out):
+      final_target = pdrain.scrape(server_url)
+
+    if not final_target:
+      print_error("Stream tidak tersedia. Pilih resolusi lain.")
+      server_url = None
+      continue
+
+    print_step("🚀 Launching mpv player...")
+    return player.play_with_mpv(final_target), server_url
 
 
 # Download episode
+def _download_mega(server_url, safe, downloads_dir, out=None):
+  # Download a Mega file. Returns (dest, size, reason). reason None = success.
+  try:
+    curr = resolve_url(server_url, timeout=15)
+  except Exception as e:
+    print_error(f"Network Error: {e}")
+    return None, 0, f"Network Error: {e}"
+
+  # Extract key + file_id — try server_url first, then redirect URL
+  megakey_raw = _mega_key(server_url) or _mega_key(curr)
+  _, f_id = _mega_fid(curr)
+  if not f_id:
+    _, f_id = _mega_fid(server_url)
+  if not f_id:
+    print_error("Could not extract Mega file ID.")
+    return None, 0, "Could not extract Mega file ID."
+
+  # Reconstruct a clean URL — the host isn't used downstream, only the #key fragment matters
+  mega_url = f"https://mega.nz/file/{f_id}#{megakey_raw}"
+
+  try:
+    stream = megaNZ.resolve_mega_file_stream(mega_url, f_id)
+    if stream is None:
+      return None, 0, "Gagal resolve stream Mega"
+    path, ready, stop, dl_thread, bytes_counter, file_size = stream
+
+    # Wait for full download. `ready` itu penanda streaming (moov awal sudah
+    # kebuffer → mpv bisa buka), BUKAN penanda download tuntas — makanya bar
+    # pernah nempel 100% di awal. Yang benar: nunggu thread download mati.
+    with progress(f"⬇ Downloading {safe}...", total=file_size, out=out) as up:
+      t0 = time.time()
+      while dl_thread.is_alive():
+        if time.time() - t0 > 600:
+          print_warning("Download timed out (>10 min).")
+          stop.set()
+          return None, 0, "Download timed out (>10 min)."
+        time.sleep(0.15)
+        up(bytes_counter[0])
+      up(bytes_counter[0])  # nilai akhir → bar tuntas di ukuran sebenarnya
+    size = bytes_counter[0]
+    if size != file_size:
+      # the stream broke mid-way — never copy a truncated file as a "success"
+      print_error(f"Download incomplete: {size}/{file_size} bytes")
+      stop.set()
+      if os.path.exists(path):
+        os.remove(path)
+      return None, 0, "Download incomplete"
+
+    dest = os.path.join(downloads_dir, f"{safe}.mp4")
+    shutil.copy2(path, dest)
+    if os.path.exists(path):
+      os.remove(path)
+    return dest, size, None
+  except Exception as e:
+    print_error(f"Download failed: {e}")
+    return None, 0, f"Download failed: {e}"
+
+def _download_pdrain(server_url, safe, downloads_dir, out=None):
+  # Download a PixelDrain file. Returns (dest, size, reason). reason None = success.
+  try:
+    with progress("🌀 Bypassing PixelDrain link...", out=out):
+      final_url = pdrain.scrape(server_url)
+    if not final_url:
+      print_error("Stream not available.")
+      return None, 0, "Stream not available."
+
+    dest = os.path.join(downloads_dir, f"{safe}.mp4")
+    size = http_download(final_url, dest, f"⬇ Downloading {safe}...", out=out)
+    return dest, size, None
+  except Exception as e:
+    print_error(f"Download failed: {e}")
+    return None, 0, f"Download failed: {e}"
+
 def _download_episode(episode_title, episode_url, plugin,
                       key_source=None, out=None, quality=None):
   # Download one episode. Returns (quality_label, bytes, reason).
@@ -204,80 +274,76 @@ def _download_episode(episode_title, episode_url, plugin,
   server_name, server_url = options[sel]
 
   if 'mega' in server_url.lower() or (server_name and 'mega' in server_name.lower()):
-    # Follow redirect to get final Mega URL
-    try:
-      curr = resolve_url(server_url, timeout=15)
-    except Exception as e:
-      print_error(f"Network Error: {e}")
-      return None, 0, f"Network Error: {e}"
-
-    # Extract key + file_id — try server_url first, then redirect URL
-    megakey_raw = _mega_key(server_url) or _mega_key(curr)
-    _, f_id = _mega_fid(curr)
-    if not f_id:
-      _, f_id = _mega_fid(server_url)
-    if not f_id:
-      print_error("Could not extract Mega file ID.")
-      return None, 0, "Could not extract Mega file ID."
-
-    # Reconstruct a clean URL — the host isn't used downstream, only the #key fragment matters
-    mega_url = f"https://mega.nz/file/{f_id}#{megakey_raw}"
-
-    try:
-      stream = megaNZ.resolve_mega_file_stream(mega_url, f_id)
-      if stream is None:
-        return None, 0, "Gagal resolve stream Mega"
-      path, ready, stop, dl_thread, bytes_counter, file_size = stream
-
-      # Wait for full download. `ready` itu penanda streaming (moov awal sudah
-      # kebuffer → mpv bisa buka), BUKAN penanda download tuntas — makanya bar
-      # pernah nempel 100% di awal. Yang benar: nunggu thread download mati.
-      with progress(f"⬇ Downloading {safe}...", total=file_size, out=out) as up:
-        t0 = time.time()
-        while dl_thread.is_alive():
-          if time.time() - t0 > 600:
-            print_warning("Download timed out (>10 min).")
-            stop.set()
-            return None, 0, "Download timed out (>10 min)."
-          time.sleep(0.15)
-          up(bytes_counter[0])
-        up(bytes_counter[0])  # nilai akhir → bar tuntas di ukuran sebenarnya
-      size = bytes_counter[0]
-      if size != file_size:
-        # the stream broke mid-way — never copy a truncated file as a "success"
-        print_error(f"Download incomplete: {size}/{file_size} bytes")
-        stop.set()
-        if os.path.exists(path):
-          os.remove(path)
-        return None, 0, "Download incomplete"
-
-      dest = os.path.join(downloads_dir, f"{safe}.mp4")
-      shutil.copy2(path, dest)
-      if os.path.exists(path):
-        os.remove(path)
-
-    except Exception as e:
-      print_error(f"Download failed: {e}")
-      return None, 0, f"Download failed: {e}"
-
+    dest, size, reason = _download_mega(server_url, safe, downloads_dir, out=out)
   else:
-    # PixelDrain — download stream
-    try:
-      with progress("🌀 Bypassing PixelDrain link...", out=out):
-        final_url = pdrain.scrape(server_url)
-      if not final_url:
-        print_error("Stream not available.")
-        return None, 0, "Stream not available."
+    dest, size, reason = _download_pdrain(server_url, safe, downloads_dir, out=out)
 
-      dest = os.path.join(downloads_dir, f"{safe}.mp4")
-      size = http_download(final_url, dest, f"⬇ Downloading {safe}...", out=out)
-    except Exception as e:
-      print_error(f"Download failed: {e}")
-      return None, 0, f"Download failed: {e}"
+  if reason:
+    return None, 0, reason
 
   print_success(f"✅ Downloaded: {dest}")
   return quality, size, None
 
+
+def _episode_labels(episode_list, resume_idx, back_label):
+  # Label list for the episode picker: '▶' marks the resume episode.
+  labels = []
+  for i, ep in enumerate(episode_list):
+    mark = '▶' if resume_idx == i else ' '
+    labels.append(f"{mark} EP{i+1:02d}  —  {ep['title'][:50]}")
+  labels.append(f"↩  {back_label}")
+  return labels
+
+def _run_download_queue(episode_list, plugin, resume_idx, header,
+                        key_source=None, out=None):
+  # ctrl-d: multi-select download queue. Returns None.
+  ep_labels = _episode_labels(episode_list, resume_idx, "")[:-1]
+  picks = multiselect("⬇  Pilih episode:", ep_labels, search=True, fuzzy=True,
+                      key_source=key_source, out=out, header=header,
+                      shortcuts={"ctrl-a": "pilih semua"})
+  if picks == "pilih semua":
+    picks = set(range(len(ep_labels)))
+  if not picks:
+    return
+
+  print_header("⬇ DOWNLOADING", "⬇")
+  quality = None
+  ok = fail = 0
+  total_bytes = 0
+  failed = []
+  for i in sorted(picks):
+    q, size, reason = _download_episode(episode_list[i]['title'], episode_list[i]['url'], plugin,
+                                        key_source=key_source, out=out, quality=quality)
+    if q == _CANCEL:
+      break  # user cancelled at the quality prompt → stop the queue
+    if q:
+      quality = q
+      ok += 1
+      total_bytes += size
+    else:
+      fail += 1  # episode failed (incl. the first) → noted; queue continues (quality None = re-prompt)
+      failed.append((episode_list[i]['title'], reason))
+  if ok or fail:
+    print_success(f"Queue selesai — {ok} berhasil, {fail} gagal, {_fmt_size(total_bytes)}")
+    for title, reason in failed:
+      print_warning(f"{title}: {reason}")
+    time.sleep(2)  # let the message be read before the list re-renders
+
+def _post_play_action(cmd, idx, total):
+  # Map post-play command → (new_idx, action). action: next/prev/replay/quality/back/quit.
+  if cmd == '▶  NEXT':
+    if idx + 1 < total:
+      return idx + 1, 'next'
+    return idx, 'back'
+  if cmd == '◀  PREV':
+    if idx > 0:
+      return idx - 1, 'prev'
+    return idx, 'back'
+  if cmd == '↺  REPLAY':
+    return idx, 'replay'
+  if cmd == '⚙  QUALITY':
+    return idx, 'quality'
+  return idx, 'quit'
 
 def _episode_nav(episode_list, plugin, back_label='<< BACK',
                  show_banner=True, anime_url=None, mode='play',
@@ -289,46 +355,14 @@ def _episode_nav(episode_list, plugin, back_label='<< BACK',
   header = banner_header() if show_banner else ()
 
   while True:
-    labels = []
-    for i, ep in enumerate(episode_list):
-      mark = '▶' if resume_idx == i else ' '
-      labels.append(f"{mark} EP{i+1:02d}  —  {ep['title'][:50]}")
-    labels.append(f"↩  {back_label}")
-
+    labels = _episode_labels(episode_list, resume_idx, back_label)
     sel = select("▶  Select episode:", labels, search=True, fuzzy=True,
                  key_source=key_source, out=out, header=header,
                  shortcuts={"ctrl-d": "download"})
     if isinstance(sel, str):
       if sel == 'download':
-        ep_labels = labels[:-1]
-        picks = multiselect("⬇  Pilih episode:", ep_labels, search=True, fuzzy=True,
-                            key_source=key_source, out=out, header=header,
-                            shortcuts={"ctrl-a": "pilih semua"})
-        if picks == "pilih semua":
-          picks = set(range(len(ep_labels)))
-        if picks:
-          print_header("⬇ DOWNLOADING", "⬇")
-          quality = None
-          ok = fail = 0
-          total_bytes = 0
-          failed = []
-          for i in sorted(picks):
-            q, size, reason = _download_episode(episode_list[i]['title'], episode_list[i]['url'], plugin,
-                                                key_source=key_source, out=out, quality=quality)
-            if q == _CANCEL:
-              break  # user cancelled at the quality prompt → stop the queue
-            if q:
-              quality = q
-              ok += 1
-              total_bytes += size
-            else:
-              fail += 1  # episode failed (incl. the first) → noted; queue continues (quality None = re-prompt)
-              failed.append((episode_list[i]['title'], reason))
-          if ok or fail:
-            print_success(f"Queue selesai — {ok} berhasil, {fail} gagal, {_fmt_size(total_bytes)}")
-            for title, reason in failed:
-              print_warning(f"{title}: {reason}")
-            time.sleep(2)  # let the message be read before the list re-renders
+        _run_download_queue(episode_list, plugin, resume_idx, header,
+                            key_source=key_source, out=out)
       continue
     if sel is None or sel == len(labels) - 1:
       cache_clear()
@@ -362,27 +396,16 @@ def _episode_nav(episode_list, plugin, back_label='<< BACK',
                        key_source=key_source, out=out, header=header)
       if cmd_idx is None:
         return 'quit'
-      cmd = post_choices[cmd_idx]
 
-      if cmd == '▶  NEXT':
-        if idx + 1 < len(episode_list):
-          idx += 1
-          _last_url = None
-          continue
+      idx, action = _post_play_action(post_choices[cmd_idx], idx, len(episode_list))
+      if action == 'back':
         break
-      elif cmd == '◀  PREV':
-        if idx > 0:
-          idx -= 1
-          _last_url = None
-          continue
-        break
-      elif cmd == '↺  REPLAY':
-        continue
-      elif cmd == '⚙  QUALITY':
-        _last_url = None
-        continue
-      else:
+      if action == 'quit':
         return 'quit'
+      if action != 'replay':
+        _last_url = None
+      # next/prev/quality/replay → back to NOW PLAYING with (maybe) a new episode
+
 
 
 # Customizable shortcuts (search screen)

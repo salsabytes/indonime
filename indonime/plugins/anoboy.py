@@ -41,4 +41,4 @@ def downloads(url):
   if not dl_div:
     return {}
   links = [{'name': a.text.strip(), 'url': a['href']} for a in dl_div('a')][2:]
-  return {l['name']: {l['name']: l['url']} for l in links}
+  return {link['name']: {link['name']: link['url']} for link in links}

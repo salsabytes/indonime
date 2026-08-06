@@ -5,6 +5,7 @@ import base64
 import threading
 import queue
 import tempfile
+import urllib.parse
 import urllib.request
 
 from tuiko import style
@@ -144,6 +145,8 @@ def _patch_moov(buf, a, n, delta):
 
 # GET ciphertext bytes [start, end) → bytes, or None when Range is unsupported.
 def _http_range(url, start, end, timeout=30):
+  if urllib.parse.urlparse(url).scheme not in ('http', 'https'):
+    return None  # Bandit B310: only http(s), never file:/ custom schemes
   try:
     req = urllib.request.Request(
       url, headers={**HEADERS, 'Range': f'bytes={start}-{end - 1}'})
@@ -269,6 +272,53 @@ def _run_prefetch(resp, q, stop):
 # full download (mpv opens when the file is complete).
 # moov must sit inside the last _TAIL_SCAN bytes; an oversized moov (>4MB,
 # rare) falls back to full-download-then-play.
+# Sequential download+decrypt fallback (original flow): full file, then play.
+def _download_sequential(dl_link, k, iv, f, ready, stop, bytes_counter,
+                         early_bytes, mkv_floor, _fmt):
+  f.seek(0)
+  f.truncate()
+  bytes_counter[0] = 0
+  response = http_stream(dl_link, timeout=30)
+  chunk_queue = queue.Queue(maxsize=2)
+  t = threading.Thread(
+    target=_run_prefetch, args=(response, chunk_queue, stop),
+    daemon=True,
+  )
+  t.start()
+
+  downloaded = 0
+  _first_dec = None
+  early_buf = b''  # decrypted bytes up to early_bytes → faststart MP4 check
+  c = Cipher(algorithms.AES(k), modes.CTR(iv))
+  d = c.decryptor()
+  while True:
+    chunk = chunk_queue.get()
+    if chunk is None:
+      break
+    if isinstance(chunk, Exception):
+      raise chunk
+    dec = d.update(chunk)
+    f.write(dec)
+    if _first_dec is None:
+      _first_dec = dec[:8]
+      _fmt[0] = 'mp4' if b'\x66\x74\x79\x70' in _first_dec else 'mkv'
+    if len(early_buf) < early_bytes:
+      early_buf += dec[: early_bytes - len(early_buf)]
+    downloaded += len(chunk)
+    bytes_counter[0] = downloaded
+    # MKV: tiny header → stream once a small floor is buffered.
+    # MP4: launch as soon as the moov box is fully inside the buffer
+    # (faststart) — a truncated moov is exactly why mpv can't open.
+    if not ready.is_set():
+      if _fmt[0] == 'mp4':
+        if _is_faststart(early_buf) and _moov_complete(early_buf):
+          ready.set()
+      elif downloaded >= mkv_floor:
+        ready.set()
+    if stop.is_set():
+      break
+  d.finalize()
+
 def resolve_mega_file_stream(url, file_id):
   parsed = _parse_mega_url(url)
   if parsed is None:
@@ -314,49 +364,8 @@ def resolve_mega_file_stream(url, file_id):
           return  # header written, stream broke — mpv plays what's there; retry
 
         # Fallback: sequential download+decrypt (original flow).
-        f.seek(0)
-        f.truncate()
-        bytes_counter[0] = 0
-        response = http_stream(dl_link, timeout=30)
-        chunk_queue = queue.Queue(maxsize=2)
-        t = threading.Thread(
-          target=_run_prefetch, args=(response, chunk_queue, stop),
-          daemon=True,
-        )
-        t.start()
-
-        downloaded = 0
-        _first_dec = None
-        early_buf = b''  # decrypted bytes up to early_bytes → faststart MP4 check
-        c = Cipher(algorithms.AES(k), modes.CTR(iv))
-        d = c.decryptor()
-        while True:
-          chunk = chunk_queue.get()
-          if chunk is None:
-            break
-          if isinstance(chunk, Exception):
-            raise chunk
-          dec = d.update(chunk)
-          f.write(dec)
-          if _first_dec is None:
-            _first_dec = dec[:8]
-            _fmt[0] = 'mp4' if b'\x66\x74\x79\x70' in _first_dec else 'mkv'
-          if len(early_buf) < early_bytes:
-            early_buf += dec[: early_bytes - len(early_buf)]
-          downloaded += len(chunk)
-          bytes_counter[0] = downloaded
-          # MKV: tiny header → stream once a small floor is buffered.
-          # MP4: launch as soon as the moov box is fully inside the buffer
-          # (faststart) — a truncated moov is exactly why mpv can't open.
-          if not ready.is_set():
-            if _fmt[0] == 'mp4':
-              if _is_faststart(early_buf) and _moov_complete(early_buf):
-                ready.set()
-            elif downloaded >= mkv_floor:
-              ready.set()
-          if stop.is_set():
-            break
-        d.finalize()
+        _download_sequential(dl_link, k, iv, f, ready, stop, bytes_counter,
+                             early_bytes, mkv_floor, _fmt)
     except Exception as e:
       print(style(f"✘ Mega Stream Error: {e}", Palette.error))
       ready.set()
