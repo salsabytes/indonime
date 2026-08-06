@@ -6,6 +6,7 @@
     <img src="https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+">
     <img src="https://img.shields.io/badge/platform-windows-lightgrey?style=flat-square&logo=windows&logoColor=white" alt="Platform Windows">
     <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License MIT">
+    <a href="https://www.codefactor.io/repository/github/salsabytes/indonime/issues/main"><img src="https://www.codefactor.io/repository/github/salsabytes/indonime/badge?style=flat-square" alt="CodeFactor"></a>
     <img src="https://img.shields.io/github/v/release/salsabytes/indonime?style=flat-square&logo=github" alt="Latest Release">
     <img src="https://img.shields.io/github/downloads/salsabytes/indonime/total?style=flat-square&logo=github" alt="Downloads">
   </p>
