@@ -13,8 +13,6 @@ for _s in (sys.stdout, sys.stderr):
       pass
 
 class Palette:
-  # Warna brand yang gak ada di tuiko.theme; sisanya ikut theme biar
-  # satu sumber kebenaran (kalau tuiko.theme berubah, indonime ikut).
   primary = 117   # sky cyan
   accent = 220   # gold
   error = 203   # red
