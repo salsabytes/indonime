@@ -40,5 +40,11 @@ def downloads(url):
   dl_div = soup.find('div', class_='navi')
   if not dl_div:
     return {}
-  links = [{'name': a.text.strip(), 'url': a['href']} for a in dl_div('a')][2:]
-  return {link['name']: {link['name']: link['url']} for link in links}
+  # Real download servers are absolute http links; nav (Prev/Semua/Next) are relative.
+  links = [
+    {'name': a.text.strip(), 'url': a['href']}
+    for a in dl_div('a') if a['href'].startswith('http')
+  ]
+  # quality label = server type ("GDrive"/"MP4"), server name keeps full text
+  return {link['name'].replace('Download ', ''): {link['name']: link['url']}
+          for link in links}

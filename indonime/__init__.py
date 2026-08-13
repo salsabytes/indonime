@@ -16,7 +16,7 @@ from .ui import (
 
 from . import plugins
 from tuiko import multiselect, prompt, select, session
-from .ext import pdrain, megaNZ
+from .ext import pdrain, megaNZ, gdrive
 from .ext.megaNZ import _mega_fid, _mega_key
 from .plugins._base import cache_clear, cached, http_download, resolve_url
 
@@ -28,7 +28,7 @@ def _fmt_size(n):
     n /= 1024
 
 # Compatible server prefixes
-_COMPATIBLE = {'pdrain', 'pixeldrain', 'mega'}
+_COMPATIBLE = {'pdrain', 'pixeldrain', 'mega', 'gdrive'}
 _CANCEL = "__cancel__"  # sentinel quality: user cancelled at the quality prompt
 
 def _compatible_servers(dl_links):
@@ -155,8 +155,12 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
         continue
       return True, final_mega_url
 
-    with progress("🌀 Bypassing PixelDrain link...", out=out):
-      final_target = pdrain.scrape(server_url)
+    if 'gdrive' in server_url.lower() or 'gdrive' in last_selected_server_name.lower():
+      with progress("🌀 Resolving GDrive link...", out=out):
+        final_target = gdrive.scrape(server_url)
+    else:
+      with progress("🌀 Bypassing PixelDrain link...", out=out):
+        final_target = pdrain.scrape(server_url)
 
     if not final_target:
       print_error("Stream tidak tersedia. Pilih resolusi lain.")
@@ -225,11 +229,12 @@ def _download_mega(server_url, safe, downloads_dir, out=None):
     print_error(f"Download failed: {e}")
     return None, 0, f"Download failed: {e}"
 
-def _download_pdrain(server_url, safe, downloads_dir, out=None):
-  # Download a PixelDrain file. Returns (dest, size, reason). reason None = success.
+def _download_pdrain(server_url, safe, downloads_dir, out=None, scraper=pdrain.scrape):
+  # Download via a direct-URL resolver (PixelDrain or GDrive).
+  # Returns (dest, size, reason). reason None = success.
   try:
-    with progress("🌀 Bypassing PixelDrain link...", out=out):
-      final_url = pdrain.scrape(server_url)
+    with progress("🌀 Bypassing link...", out=out):
+      final_url = scraper(server_url)
     if not final_url:
       print_error("Stream not available.")
       return None, 0, "Stream not available."
@@ -275,6 +280,9 @@ def _download_episode(episode_title, episode_url, plugin,
 
   if 'mega' in server_url.lower() or (server_name and 'mega' in server_name.lower()):
     dest, size, reason = _download_mega(server_url, safe, downloads_dir, out=out)
+  elif 'gdrive' in server_url.lower() or (server_name and 'gdrive' in server_name.lower()):
+    dest, size, reason = _download_pdrain(server_url, safe, downloads_dir, out=out,
+                                          scraper=gdrive.scrape)
   else:
     dest, size, reason = _download_pdrain(server_url, safe, downloads_dir, out=out)
 
