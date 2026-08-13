@@ -32,3 +32,7 @@ mpv/
 venv
 
 AGENTS.md
+
+# codegraph / hermes per-project state
+.codegraph.json
+.hermes/
