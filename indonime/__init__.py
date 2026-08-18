@@ -6,6 +6,7 @@ import json
 import os
 import pkgutil
 import shutil
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -187,8 +188,9 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
 
 
 # Download episode
-def _download_mega(server_url, safe, downloads_dir, out=None):
+def _download_mega(server_url, safe, downloads_dir, out=None, agg=None):
   # Download a Mega file. Returns (dest, size, reason). reason None = success.
+  # agg: optional _BatchBar — total + byte deltas feed the batch-wide bar.
   try:
     curr = resolve_url(server_url, timeout=15)
   except Exception as e:
@@ -212,20 +214,29 @@ def _download_mega(server_url, safe, downloads_dir, out=None):
     if stream is None:
       return None, 0, "Gagal resolve stream Mega"
     path, ready, stop, dl_thread, bytes_counter, file_size = stream
+    if agg:
+      agg.add_total(safe, file_size)
 
     # Wait for the full download. `ready` only means streaming (moov header
     # buffered → mpv can open), NOT a finished download — that's why the bar
     # used to stick at 100% early. The right signal: wait for the thread to end.
     with progress(f"⬇ Downloading {safe}...", total=file_size, out=out) as up:
       t0 = time.time()
+      last = cur = 0
       while dl_thread.is_alive():
         if time.time() - t0 > 600:
           print_warning("Download timed out (>10 min).")
           stop.set()
           return None, 0, "Download timed out (>10 min)."
         time.sleep(0.15)
-        up(bytes_counter[0])
+        cur = bytes_counter[0]
+        if agg and cur != last:
+          agg.add_done(cur - last)  # delta → batch bar
+        last = cur
+        up(cur)
       up(bytes_counter[0])  # final value → bar ends at the real size
+      if agg and cur != last:
+        agg.add_done(bytes_counter[0] - last)
     size = bytes_counter[0]
     if size != file_size:
       # the stream broke mid-way — never copy a truncated file as a "success"
@@ -244,7 +255,7 @@ def _download_mega(server_url, safe, downloads_dir, out=None):
     print_error(f"Download failed: {e}")
     return None, 0, f"Download failed: {e}"
 
-def _download_pdrain(server_url, safe, downloads_dir, out=None, scraper=pdrain.scrape):
+def _download_pdrain(server_url, safe, downloads_dir, out=None, scraper=pdrain.scrape, agg=None):
   # Download via a direct-URL resolver (PixelDrain or GDrive).
   # Returns (dest, size, reason). reason None = success.
   try:
@@ -255,26 +266,31 @@ def _download_pdrain(server_url, safe, downloads_dir, out=None, scraper=pdrain.s
       return None, 0, "Stream not available."
 
     dest = os.path.join(downloads_dir, f"{safe}.mp4")
-    size = http_download(final_url, dest, f"⬇ Downloading {safe}...", out=out)
+    size = http_download(final_url, dest, f"⬇ Downloading {safe}...", out=out,
+                         on_total=(lambda n: agg.add_total(safe, n)) if agg else None,
+                         on_bytes=(lambda n: agg.add_done(n)) if agg else None)
     return dest, size, None
   except Exception as e:
     print_error(f"Download failed: {e}")
     return None, 0, f"Download failed: {e}"
 
 def _download_episode(episode_title, episode_url, plugin,
-                      key_source=None, out=None, quality=None, quiet=False):
+                      key_source=None, out=None, bar_out=None,
+                      quality=None, quiet=False, agg=None):
   # Download one episode. Returns (quality_label, bytes, reason).
   # quality == _CANCEL when the user bails; reason None on success. On failure
   # the picked quality_label is still returned (None if none was picked) so a
   # retry can reuse it instead of prompting again. quiet=True → never prompt
   # (parallel batch worker): reuse the given quality or silently take the
-  # first compatible source.
+  # first compatible source. agg: optional _BatchBar — per-episode bars are
+  # muted into bar_out (StringIO in batch) and the aggregate bar renders instead.
   safe = _safe_name(episode_title)
   downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
   os.makedirs(downloads_dir, exist_ok=True)
+  bar_out = bar_out or out
 
   # Resolve server URL + pick quality (caller never pre-resolves)
-  with progress("🔍 Resolving download links...", out=out):
+  with progress("🔍 Resolving download links...", out=bar_out):
     dl_links = plugin.downloads(episode_url)
 
   options = _compatible_servers(dl_links)
@@ -299,12 +315,12 @@ def _download_episode(episode_title, episode_url, plugin,
   server_name, server_url = options[sel]
 
   if 'mega' in server_url.lower() or (server_name and 'mega' in server_name.lower()):
-    dest, size, reason = _download_mega(server_url, safe, downloads_dir, out=out)
+    dest, size, reason = _download_mega(server_url, safe, downloads_dir, out=bar_out, agg=agg)
   elif 'gdrive' in server_url.lower() or (server_name and 'gdrive' in server_name.lower()):
-    dest, size, reason = _download_pdrain(server_url, safe, downloads_dir, out=out,
-                                          scraper=gdrive.scrape)
+    dest, size, reason = _download_pdrain(server_url, safe, downloads_dir, out=bar_out,
+                                          scraper=gdrive.scrape, agg=agg)
   else:
-    dest, size, reason = _download_pdrain(server_url, safe, downloads_dir, out=out)
+    dest, size, reason = _download_pdrain(server_url, safe, downloads_dir, out=bar_out, agg=agg)
 
   if reason:
     return quality, 0, reason  # picked quality survives → retry reuses, no re-prompt
@@ -322,12 +338,93 @@ def _episode_labels(episode_list, resume_idx, back_label):
   labels.append(f"↩  {back_label}")
   return labels
 
+class _BatchBar:
+  # ONE aggregate progress bar for the whole batch. Workers only report
+  # byte deltas (thread-safe counters); a render thread draws a single
+  # tuiko bar — per-worker bars are muted into StringIO because concurrent
+  # carriage-return draws would shred the terminal. Total grows as workers
+  # resolve file sizes (Mega API / Content-Length), so the fraction is exact
+  # once every worker has reported its size; retries re-report the same size
+  # (keyed by safe filename → overwrites, no double count).
+  def __init__(self, eps_total, out=None):
+    self._eps_total = eps_total
+    self._out = out
+    self._lock = threading.Lock()
+    self._sizes = {}   # safe-name → file size (per-episode, survives retries)
+    self._total = 0
+    self._done = 0     # bytes written across all workers
+    self._eps_done = 0
+    self._stop = threading.Event()
+    self._thread = None
+
+  def add_total(self, key, n):
+    with self._lock:
+      self._sizes[key] = n  # retry with the same key overwrites → no double count
+      self._total = sum(self._sizes.values())
+
+  def add_done(self, n):
+    with self._lock:
+      self._done += n
+
+  def mark_ep(self):
+    with self._lock:
+      self._eps_done += 1
+
+  def _frac(self):
+    with self._lock:
+      total, done = self._total, self._done
+    return min(done / total, 1.0) if total else 0.0
+
+  def start(self):
+    self._thread = threading.Thread(target=self._render, daemon=True)
+    self._thread.start()
+
+  def stop(self):
+    self._stop.set()
+    if self._thread:
+      self._thread.join(timeout=2)
+      self._thread = None
+
+  def _render(self):
+    ctx = up = None
+    last_eps = -1
+    try:
+      while not self._stop.wait(0.15):
+        with self._lock:
+          eps = self._eps_done
+        # Recreate the bar when the completed-episode count changes → the
+        # desc ("BATCH n/m") stays truthful; prev ctx exit writes the \n.
+        if eps != last_eps:
+          if ctx is not None:
+            ctx.__exit__(None, None, None)
+          ctx = progress(f"⬇ BATCH {eps}/{self._eps_total}", total=100, out=self._out)
+          up = ctx.__enter__()
+          last_eps = eps
+        if up is not None:
+          up(self._frac() * 100)
+      # Final frame: catch an eps change that happened after the last tick
+      # (workers finishing right as stop is set) so the bar shows n/m, not n-1/m.
+      with self._lock:
+        eps = self._eps_done
+      if eps != last_eps:
+        if ctx is not None:
+          ctx.__exit__(None, None, None)
+        ctx = progress(f"⬇ BATCH {eps}/{self._eps_total}", total=100, out=self._out)
+        up = ctx.__enter__()
+      if up is not None:
+        up(self._frac() * 100)
+    finally:
+      if ctx is not None:
+        ctx.__exit__(None, None, None)
+
+
 def _run_download_queue(episode_list, plugin, resume_idx, header,
                         key_source=None, out=None):
   # ctrl-d: multi-select download queue. The first pick resolves the quality
   # prompt once (sequential); every other pick downloads in parallel (up to
   # _DL_WORKERS) reusing that quality, each with _DL_RETRIES auto-retries.
-  # Episodes already on disk are skipped. Returns None.
+  # Episodes already on disk are skipped. A single _BatchBar renders the
+  # overall progress (per-episode bars are muted). Returns None.
   ep_labels = _episode_labels(episode_list, resume_idx, "")[:-1]
   picks = multiselect("⬇  Pilih episode:", ep_labels, search=True, fuzzy=True,
                       key_source=key_source, out=out, header=header,
@@ -342,21 +439,24 @@ def _run_download_queue(episode_list, plugin, resume_idx, header,
   ok = fail = skip = 0
   total_bytes = 0
   failed = []
+  bar = _BatchBar(len(picks), out=out)
 
-  def _attempt(ep_idx, quality, prompt):
+  def _attempt(ep_idx, quality, prompt, agg=None):
     # One episode with auto-retry. Returns (q, size, reason, skipped).
     # prompt=True → first pick, may ask the user at the quality prompt;
     # prompt=False → parallel worker: never prompts, reuses quality.
     title, url = episode_list[ep_idx]['title'], episode_list[ep_idx]['url']
     if _already_downloaded(title):
       return None, 0, None, True
-    # ponytail: workers render progress into a private buffer — tuiko's bar
-    # draws one carriage-return line, so concurrent bars would shred the terminal.
+    # Mute the per-episode bar into StringIO whenever the batch bar is live —
+    # tuiko's bar is a single carriage-return line; concurrent bars would
+    # shred the terminal.
     w_out = out if prompt else io.StringIO()
+    w_bar = io.StringIO() if agg else None
     for attempt in range(_DL_RETRIES + 1):
       q, size, reason = _download_episode(
         title, url, plugin, key_source=key_source if prompt else None,
-        out=w_out, quality=quality, quiet=not prompt)
+        out=w_out, bar_out=w_bar, quality=quality, quiet=not prompt, agg=agg)
       if q == _CANCEL or reason is None:
         return q, size, reason, False
       quality = q  # picked quality survives the failure → reuse on retry
@@ -365,37 +465,39 @@ def _run_download_queue(episode_list, plugin, resume_idx, header,
         time.sleep(1)  # rate-limit / transient blip recovery, not a tight loop
     return q, size, reason, False
 
-  # First pick: sequential + prompt once → the quality used by the whole batch.
-  quality = None
-  q, size, reason, skipped = _attempt(picks[0], None, prompt=True)
-  if q == _CANCEL:
-    return  # user bailed at the quality prompt → stop the queue
-  if skipped:
-    skip += 1
-  elif reason is None:
-    quality = q
-    ok += 1
-    total_bytes += size
-  else:
-    fail += 1
-    failed.append((episode_list[picks[0]]['title'], reason))
+  def _record(i, q, size, reason, skipped):
+    nonlocal ok, fail, skip, total_bytes
+    if skipped:
+      skip += 1
+    elif reason is None:
+      ok += 1
+      total_bytes += size
+    else:
+      fail += 1
+      failed.append((episode_list[i]['title'], reason))
+    bar.mark_ep()
 
-  # The rest: parallel workers, same quality, no prompts.
-  rest = picks[1:]
-  if rest:
-    with ThreadPoolExecutor(max_workers=min(_DL_WORKERS, len(rest))) as ex:
-      futs = {ex.submit(_attempt, i, quality, False): i for i in rest}
-      for fut in as_completed(futs):
-        i = futs[fut]
-        q, size, reason, skipped = fut.result()
-        if skipped:
-          skip += 1
-        elif reason is None:
-          ok += 1
-          total_bytes += size
-        else:
-          fail += 1
-          failed.append((episode_list[i]['title'], reason))
+  bar.start()
+  try:
+    # First pick: sequential + prompt once → the quality used by the whole batch.
+    quality = None
+    q, size, reason, skipped = _attempt(picks[0], None, prompt=True, agg=bar)
+    if q == _CANCEL:
+      return  # user bailed at the quality prompt → stop the queue
+    _record(picks[0], q, size, reason, skipped)
+    if reason is None:
+      quality = q
+
+    # The rest: parallel workers, same quality, no prompts.
+    rest = picks[1:]
+    if rest:
+      with ThreadPoolExecutor(max_workers=min(_DL_WORKERS, len(rest))) as ex:
+        futs = {ex.submit(_attempt, i, quality, False, bar): i for i in rest}
+        for fut in as_completed(futs):
+          i = futs[fut]
+          _record(i, *fut.result())
+  finally:
+    bar.stop()
 
   if ok or fail or skip:
     print_success(f"Queue selesai — {ok} berhasil, {skip} sudah ada, {fail} gagal, {_fmt_size(total_bytes)}")

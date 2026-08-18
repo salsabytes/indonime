@@ -57,10 +57,14 @@ def resolve_url(url, timeout=15):
     return r.geturl()
 
 # Download url → dest in 64KB chunks with a tuiko progress bar; returns bytes.
-def http_download(url, dest, desc, timeout=30, out=None):
+# on_total(total)/on_bytes(delta) → aggregate batch progress (workers report
+# deltas into one shared bar; the internal bar here draws into a discard buffer).
+def http_download(url, dest, desc, timeout=30, out=None, on_total=None, on_bytes=None):
   from ..ui import progress
   with http_stream(url, timeout=timeout) as resp:
     total = int(resp.headers.get('Content-Length', 0))
+    if on_total:
+      on_total(total)
     with progress(desc, total=total or None, out=out) as up:
       size = 0
       with open(dest, 'wb') as f:
@@ -70,6 +74,8 @@ def http_download(url, dest, desc, timeout=30, out=None):
             break
           f.write(chunk)
           size += len(chunk)
+          if on_bytes:
+            on_bytes(len(chunk))
           if total:
             up(size)
   return size
