@@ -6,6 +6,7 @@ import json
 import os
 import pkgutil
 import shutil
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -325,7 +326,8 @@ def _download_episode(episode_title, episode_url, plugin,
   if reason:
     return quality, 0, reason  # picked quality survives → retry reuses, no re-prompt
 
-  print_success(f"✅ Downloaded: {dest}")
+  if not agg:
+    print_success(f"✅ Downloaded: {dest}")  # batch → the status line under the bar covers it
   return quality, size, None
 
 
@@ -339,21 +341,23 @@ def _episode_labels(episode_list, resume_idx, back_label):
   return labels
 
 class _BatchBar:
-  # ONE aggregate progress bar for the whole batch. Workers only report
-  # byte deltas (thread-safe counters); a render thread draws a single
-  # tuiko bar — per-worker bars are muted into StringIO because concurrent
-  # carriage-return draws would shred the terminal. Total grows as workers
-  # resolve file sizes (Mega API / Content-Length), so the fraction is exact
-  # once every worker has reported its size; retries re-report the same size
-  # (keyed by safe filename → overwrites, no double count).
+  # ONE never-moved progress bar + the finished-episode status lines below it.
+  # Workers only report byte deltas (thread-safe counters). The render thread
+  # redraws the whole block each tick — cursor up by the number of rows it
+  # *emitted last time* (never the current count: a just-added status would
+  # overshoot and wipe the TUI above), draw the tuiko bar, then re-emit the
+  # status lines. Worker prints are muted in batch so no stray line shifts
+  # the block; statuses replace by title so a retry→success updates one row.
   def __init__(self, eps_total, out=None):
     self._eps_total = eps_total
-    self._out = out
+    self._out = out or sys.stdout
     self._lock = threading.Lock()
     self._sizes = {}   # safe-name → file size (per-episode, survives retries)
     self._total = 0
     self._done = 0     # bytes written across all workers
-    self._eps_done = 0
+    self._status = {}  # safe-name → line (replace per episode, stable rows)
+    self._rows = 0     # rows emitted by the last draw (bar + statuses)
+    self._dirty = True  # statuses changed → full block redraw needed
     self._stop = threading.Event()
     self._thread = None
 
@@ -366,9 +370,10 @@ class _BatchBar:
     with self._lock:
       self._done += n
 
-  def mark_ep(self):
+  def add_status(self, key, line):
     with self._lock:
-      self._eps_done += 1
+      self._status[key] = line  # replace → the same row is redrawn, no growth
+      self._dirty = True
 
   def _frac(self):
     with self._lock:
@@ -385,37 +390,42 @@ class _BatchBar:
       self._thread.join(timeout=2)
       self._thread = None
 
+  def _draw(self, up, redraw):
+    # The block occupies `rows` lines (bar + one per episode) and the cursor
+    # always rests one line below it (the foot). Jumping up `rows` lands
+    # exactly on the bar line; tuiko's bar redraws in place on that line.
+    # redraw=True → a status row changed: re-emit bar + all statuses.
+    # redraw=False → only the bar fraction moved: refresh it, return to foot.
+    with self._lock:
+      statuses = list(self._status.values())
+    rows = 1 + len(statuses)  # bar + one row per episode
+    if self._rows:
+      self._out.write(f"\x1b[{self._rows}A")  # foot → bar line
+    up(self._frac() * 100)
+    if redraw:
+      if statuses:
+        self._out.write("\n" + "\n".join(statuses))
+      self._out.write("\n")  # foot: one line below the last status
+      self._rows = rows
+    elif self._rows:
+      self._out.write(f"\x1b[{self._rows}B")  # bar line → foot
+    self._out.flush()
+
   def _render(self):
-    ctx = up = None
-    last_eps = -1
+    ctx = progress(f"⬇ BATCH ({self._eps_total} episode)", total=100, out=self._out)
+    up = ctx.__enter__()
     try:
       while not self._stop.wait(0.15):
         with self._lock:
-          eps = self._eps_done
-        # Recreate the bar when the completed-episode count changes → the
-        # desc ("BATCH n/m") stays truthful; prev ctx exit writes the \n.
-        if eps != last_eps:
-          if ctx is not None:
-            ctx.__exit__(None, None, None)
-          ctx = progress(f"⬇ BATCH {eps}/{self._eps_total}", total=100, out=self._out)
-          up = ctx.__enter__()
-          last_eps = eps
-        if up is not None:
-          up(self._frac() * 100)
-      # Final frame: catch an eps change that happened after the last tick
-      # (workers finishing right as stop is set) so the bar shows n/m, not n-1/m.
+          redraw = self._dirty
+          self._dirty = False
+        self._draw(up, redraw)
       with self._lock:
-        eps = self._eps_done
-      if eps != last_eps:
-        if ctx is not None:
-          ctx.__exit__(None, None, None)
-        ctx = progress(f"⬇ BATCH {eps}/{self._eps_total}", total=100, out=self._out)
-        up = ctx.__enter__()
-      if up is not None:
-        up(self._frac() * 100)
+        redraw = self._dirty
+        self._dirty = False
+      self._draw(up, redraw)  # final frame: catch the last status
     finally:
-      if ctx is not None:
-        ctx.__exit__(None, None, None)
+      ctx.__exit__(None, None, None)
 
 
 def _run_download_queue(episode_list, plugin, resume_idx, header,
@@ -467,15 +477,19 @@ def _run_download_queue(episode_list, plugin, resume_idx, header,
 
   def _record(i, q, size, reason, skipped):
     nonlocal ok, fail, skip, total_bytes
+    key = _safe_name(episode_list[i]['title'])
+    title = episode_list[i]['title'][:50]
     if skipped:
       skip += 1
+      bar.add_status(key, f"↺ {title} — sudah ada")
     elif reason is None:
       ok += 1
       total_bytes += size
+      bar.add_status(key, f"✓ {title} — {_fmt_size(size)}")
     else:
       fail += 1
       failed.append((episode_list[i]['title'], reason))
-    bar.mark_ep()
+      bar.add_status(key, f"✘ {title} — {reason}")
 
   bar.start()
   try:
