@@ -319,41 +319,84 @@ class TestEpisodeNav(unittest.TestCase):
       indonime._download_episode = orig
 
   def test_download_shortcut_select_all(self):
-    # ctrl-d → multiselect → ctrl-a selects ALL episodes → enter → all queued
+    # ctrl-d → multiselect → ctrl-a selects ALL episodes → enter → all queued.
+    # First pick runs sequential (quality prompt), the rest in parallel — so
+    # assert on the set of titles, not the completion order.
     calls = []
     orig = indonime._download_episode
     indonime._download_episode = lambda *a, **k: calls.append((a, k)) or ("1080p", 100, None)
     try:
       self.assertEqual(self._nav(["ctrl-d", "ctrl-a", "escape"]), "back")
-      self.assertEqual([c[0][0] for c in calls], [f"Ep {i}" for i in range(15)])
+      self.assertEqual({c[0][0] for c in calls}, {f"Ep {i}" for i in range(15)})
+      self.assertEqual(calls[0][1].get("quality"), None)  # first pick prompts
+      self.assertEqual({c[1].get("quality") for c in calls[1:]}, {"1080p"})  # workers reuse
     finally:
       indonime._download_episode = orig
 
-  def test_download_shortcut_skips_failure(self):
-    # EP1 ok → EP2 fails (None, 0) → queue continues, summary 1 success + 1 failure
+  def test_download_retry_after_failure(self):
+    # EP1 fails twice then succeeds → auto-retried (_DL_RETRIES), queue still OK.
     calls = []
-    returns = iter([("1080p", 100, None), (None, 0, "Download failed")])
+    fails = {"Ep 1": 2}
+    def fake(title, *a, **k):
+      calls.append((title, k))
+      if fails.get(title, 0) > 0:
+        fails[title] -= 1
+        return (k.get("quality"), 0, "Download failed")  # real code keeps the picked quality
+      return ("1080p", 100, None)
     orig = indonime._download_episode
-    indonime._download_episode = lambda *a, **k: calls.append((a, k)) or next(returns)
+    indonime._download_episode = fake
     try:
       self.assertEqual(self._nav(["ctrl-d", "space", "down", "space", "enter", "escape"]), "back")
-      self.assertEqual([c[0][0] for c in calls], ["Ep 0", "Ep 1"])
-      self.assertEqual([c[1].get("quality") for c in calls], [None, "1080p"])
+      self.assertEqual([c[0] for c in calls], ["Ep 0", "Ep 1", "Ep 1", "Ep 1"])
+      self.assertEqual([c[1].get("quality") for c in calls], [None, "1080p", "1080p", "1080p"])
+    finally:
+      indonime._download_episode = orig
+
+  def test_download_exhausted_retries_fail(self):
+    # EP1 always fails → retried _DL_RETRIES times then recorded as failed.
+    calls = []
+    orig = indonime._download_episode
+    indonime._download_episode = lambda *a, **k: calls.append((a, k)) or (None, 0, "Download failed")
+    try:
+      self.assertEqual(self._nav(["ctrl-d", "space", "down", "space", "enter", "escape"]), "back")
+      self.assertEqual([c[0][0] for c in calls], ["Ep 0", "Ep 0", "Ep 0", "Ep 1", "Ep 1", "Ep 1"])
     finally:
       indonime._download_episode = orig
 
   def test_download_first_episode_failure_recorded(self):
-    # EP1 fails (not a cancel) → still recorded, the queue continues to EP2
+    # First pick exhausts retries → quality stays None → worker (Ep 1) picks
+    # its own source quietly; queue continues and both episodes are attempted.
     calls = []
-    returns = iter([(None, 0, "No sources"), ("1080p", 100, None)])
+    fails = {"Ep 0": 99}
+    def fake(title, *a, **k):
+      calls.append((title, k))
+      if fails.get(title, 0) > 0:
+        fails[title] -= 1
+        return (None, 0, "No sources")
+      return ("1080p", 100, None)
     orig = indonime._download_episode
-    indonime._download_episode = lambda *a, **k: calls.append((a, k)) or next(returns)
+    indonime._download_episode = fake
     try:
       self.assertEqual(self._nav(["ctrl-d", "space", "down", "space", "enter", "escape"]), "back")
-      self.assertEqual([c[0][0] for c in calls], ["Ep 0", "Ep 1"])
-      self.assertEqual([c[1].get("quality") for c in calls], [None, None])
+      self.assertEqual({c[0] for c in calls}, {"Ep 0", "Ep 1"})
+      self.assertEqual([c[1].get("quality") for c in calls], [None] * 4)  # no quality ever resolved
+      self.assertTrue(all(c[1].get("quiet") is True for c in calls if c[0] == "Ep 1"))  # worker never prompts
     finally:
       indonime._download_episode = orig
+
+  def test_download_skip_already_downloaded(self):
+    # An episode whose file already exists in ~/Downloads is skipped entirely.
+    calls = []
+    orig_dl = indonime._download_episode
+    orig_skip = indonime._already_downloaded
+    indonime._download_episode = lambda *a, **k: calls.append((a, k)) or ("1080p", 100, None)
+    indonime._already_downloaded = lambda title: title == "Ep 1"
+    try:
+      self.assertEqual(self._nav(["ctrl-d", "space", "down", "space", "enter", "escape"]), "back")
+      self.assertEqual([c[0][0] for c in calls], ["Ep 0"])  # Ep 1 skipped
+    finally:
+      indonime._download_episode = orig_dl
+      indonime._already_downloaded = orig_skip
 
   def test_download_cancel_stops_queue(self):
     # user cancels at the quality prompt (sentinel) → the queue stops immediately

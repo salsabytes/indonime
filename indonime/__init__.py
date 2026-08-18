@@ -1,11 +1,13 @@
 # search → select → play — tuiko-powered.
 import argparse
 import importlib
+import io
 import json
 import os
 import pkgutil
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from . import player
 from .ui import (
@@ -30,6 +32,19 @@ def _fmt_size(n):
 # Compatible server prefixes
 _COMPATIBLE = {'pdrain', 'pixeldrain', 'mega', 'gdrive'}
 _CANCEL = "__cancel__"  # sentinel quality: user cancelled at the quality prompt
+_DL_RETRIES = 2   # auto-retry attempts per failed episode (network blips)
+_DL_WORKERS = 2   # parallel batch downloads — low-end devices, keep it small
+
+def _safe_name(title):
+  # Filesystem-safe episode filename stem (shared by dest-path + download fns).
+  return "".join(c if c.isalnum() or c in " .-_()[]" else "_" for c in title)[:100]
+
+def _dest_path(title):
+  return os.path.join(os.path.expanduser("~"), "Downloads", f"{_safe_name(title)}.mp4")
+
+def _already_downloaded(title):
+  dest = _dest_path(title)
+  return os.path.exists(dest) and os.path.getsize(dest) > 0
 
 def _compatible_servers(dl_links):
   # Flatten {quality: {server: url}} → [(label, url)] for compatible servers.
@@ -247,12 +262,14 @@ def _download_pdrain(server_url, safe, downloads_dir, out=None, scraper=pdrain.s
     return None, 0, f"Download failed: {e}"
 
 def _download_episode(episode_title, episode_url, plugin,
-                      key_source=None, out=None, quality=None):
+                      key_source=None, out=None, quality=None, quiet=False):
   # Download one episode. Returns (quality_label, bytes, reason).
-  # quality == _CANCEL when the user bails; quality None + reason on failure;
-  # reason None on success.
-  # Sanitize filename first
-  safe = "".join(c if c.isalnum() or c in " .-_()[]" else "_" for c in episode_title)[:100]
+  # quality == _CANCEL when the user bails; reason None on success. On failure
+  # the picked quality_label is still returned (None if none was picked) so a
+  # retry can reuse it instead of prompting again. quiet=True → never prompt
+  # (parallel batch worker): reuse the given quality or silently take the
+  # first compatible source.
+  safe = _safe_name(episode_title)
   downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
   os.makedirs(downloads_dir, exist_ok=True)
 
@@ -269,6 +286,9 @@ def _download_episode(episode_title, episode_url, plugin,
   labels = [o[0] for o in options]
   if quality is not None and quality in labels:
     sel = labels.index(quality)  # reuse same quality — no prompt
+  elif quiet:
+    sel = 0  # batch worker: never prompt, quietly take the first compatible
+    quality = labels[0]
   else:
     sel = select("📥  Select quality & server:", labels,
                  key_source=key_source, out=out, header=banner_header())
@@ -287,7 +307,7 @@ def _download_episode(episode_title, episode_url, plugin,
     dest, size, reason = _download_pdrain(server_url, safe, downloads_dir, out=out)
 
   if reason:
-    return None, 0, reason
+    return quality, 0, reason  # picked quality survives → retry reuses, no re-prompt
 
   print_success(f"✅ Downloaded: {dest}")
   return quality, size, None
@@ -304,7 +324,10 @@ def _episode_labels(episode_list, resume_idx, back_label):
 
 def _run_download_queue(episode_list, plugin, resume_idx, header,
                         key_source=None, out=None):
-  # ctrl-d: multi-select download queue. Returns None.
+  # ctrl-d: multi-select download queue. The first pick resolves the quality
+  # prompt once (sequential); every other pick downloads in parallel (up to
+  # _DL_WORKERS) reusing that quality, each with _DL_RETRIES auto-retries.
+  # Episodes already on disk are skipped. Returns None.
   ep_labels = _episode_labels(episode_list, resume_idx, "")[:-1]
   picks = multiselect("⬇  Pilih episode:", ep_labels, search=True, fuzzy=True,
                       key_source=key_source, out=out, header=header,
@@ -315,24 +338,67 @@ def _run_download_queue(episode_list, plugin, resume_idx, header,
     return
 
   print_header("⬇ DOWNLOADING", "⬇")
-  quality = None
-  ok = fail = 0
+  picks = sorted(picks)
+  ok = fail = skip = 0
   total_bytes = 0
   failed = []
-  for i in sorted(picks):
-    q, size, reason = _download_episode(episode_list[i]['title'], episode_list[i]['url'], plugin,
-                                        key_source=key_source, out=out, quality=quality)
-    if q == _CANCEL:
-      break  # user cancelled at the quality prompt → stop the queue
-    if q:
-      quality = q
-      ok += 1
-      total_bytes += size
-    else:
-      fail += 1  # episode failed (incl. the first) → noted; queue continues (quality None = re-prompt)
-      failed.append((episode_list[i]['title'], reason))
-  if ok or fail:
-    print_success(f"Queue selesai — {ok} berhasil, {fail} gagal, {_fmt_size(total_bytes)}")
+
+  def _attempt(ep_idx, quality, prompt):
+    # One episode with auto-retry. Returns (q, size, reason, skipped).
+    # prompt=True → first pick, may ask the user at the quality prompt;
+    # prompt=False → parallel worker: never prompts, reuses quality.
+    title, url = episode_list[ep_idx]['title'], episode_list[ep_idx]['url']
+    if _already_downloaded(title):
+      return None, 0, None, True
+    # ponytail: workers render progress into a private buffer — tuiko's bar
+    # draws one carriage-return line, so concurrent bars would shred the terminal.
+    w_out = out if prompt else io.StringIO()
+    for attempt in range(_DL_RETRIES + 1):
+      q, size, reason = _download_episode(
+        title, url, plugin, key_source=key_source if prompt else None,
+        out=w_out, quality=quality, quiet=not prompt)
+      if q == _CANCEL or reason is None:
+        return q, size, reason, False
+      quality = q  # picked quality survives the failure → reuse on retry
+      if attempt < _DL_RETRIES:
+        print_warning(f"↻ {title}: {reason} — retry {attempt + 2}/{_DL_RETRIES + 1}")
+        time.sleep(1)  # rate-limit / transient blip recovery, not a tight loop
+    return q, size, reason, False
+
+  # First pick: sequential + prompt once → the quality used by the whole batch.
+  quality = None
+  q, size, reason, skipped = _attempt(picks[0], None, prompt=True)
+  if q == _CANCEL:
+    return  # user bailed at the quality prompt → stop the queue
+  if skipped:
+    skip += 1
+  elif reason is None:
+    quality = q
+    ok += 1
+    total_bytes += size
+  else:
+    fail += 1
+    failed.append((episode_list[picks[0]]['title'], reason))
+
+  # The rest: parallel workers, same quality, no prompts.
+  rest = picks[1:]
+  if rest:
+    with ThreadPoolExecutor(max_workers=min(_DL_WORKERS, len(rest))) as ex:
+      futs = {ex.submit(_attempt, i, quality, False): i for i in rest}
+      for fut in as_completed(futs):
+        i = futs[fut]
+        q, size, reason, skipped = fut.result()
+        if skipped:
+          skip += 1
+        elif reason is None:
+          ok += 1
+          total_bytes += size
+        else:
+          fail += 1
+          failed.append((episode_list[i]['title'], reason))
+
+  if ok or fail or skip:
+    print_success(f"Queue selesai — {ok} berhasil, {skip} sudah ada, {fail} gagal, {_fmt_size(total_bytes)}")
     for title, reason in failed:
       print_warning(f"{title}: {reason}")
     time.sleep(2)  # let the message be read before the list re-renders
