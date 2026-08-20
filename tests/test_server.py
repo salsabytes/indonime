@@ -10,11 +10,11 @@ def test_api():
   port = start_server(port=0)
   base = f'http://127.0.0.1:{port}'
 
-  with urllib.request.urlopen(base + '/api/providers') as r:
+  with urllib.request.urlopen(base + '/api/providers') as r:  # nosec B310: local test server
     data = json.load(r)
     assert r.status == 200 and 'otakudesu' in data['providers']
 
-  with urllib.request.urlopen(base + '/api/jobs') as r:
+  with urllib.request.urlopen(base + '/api/jobs') as r:  # nosec B310: local test server
     assert json.load(r) == {'jobs': []}
 
   req = urllib.request.Request(
@@ -22,13 +22,13 @@ def test_api():
     data=json.dumps({'server_url': 'https://pixeldrain.com/u/xxxx',
                      'title': 'Smoke Test'}).encode(),
     headers={'Content-Type': 'application/json'})
-  with urllib.request.urlopen(req) as r:
+  with urllib.request.urlopen(req) as r:  # nosec B310: local test server
     jid = json.load(r)['job_id']
   assert jid >= 1
 
   job = None
   for _ in range(100):
-    with urllib.request.urlopen(base + '/api/jobs') as r:
+    with urllib.request.urlopen(base + '/api/jobs') as r:  # nosec B310: local test server
       jobs = json.load(r)['jobs']
     job = next((j for j in jobs if j['id'] == jid), None)
     if job and job['status'] != 'running':

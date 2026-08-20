@@ -19,9 +19,8 @@ import base64
 import json
 import re
 import urllib.parse
-import urllib.request
 
-from ..plugins._base import http_get, http_head
+from ..plugins._base import _open, http_get, http_head
 from ..ui import Palette
 from tuiko import style
 
@@ -209,16 +208,18 @@ def _gdplayer_url(url):
   ps, kaken, pd = vars_['ps'], vars_['kaken'], vars_['pd']
 
   headers = {'User-Agent': _HEADERS_USER_AGENT, 'Referer': url}
-  req = urllib.request.Request(f'{apx}{vars_["qsx"]}/?p={ps}', headers=headers)
-  with urllib.request.urlopen(req, timeout=15) as r:
+  # Route through _open so the host allowlist + redirect guard apply (these
+  # API hosts are gdplayer.to — already allowlisted).
+  cfg_url = f'{apx}{vars_["qsx"]}/?p={ps}'
+  with _open(cfg_url, timeout=15, headers=headers) as r:
     cfg = _dcx(pd, r.read().decode())
   json.loads(cfg)  # validates decrypt; config itself unused
 
   api = apx.replace('-config', '')
   data = kaken.encode()
   hdrs = {**headers, 'Content-Type': 'text/plain'}
-  req = urllib.request.Request(api + f'?p={ps}', data=data, headers=hdrs)
-  with urllib.request.urlopen(req, timeout=15) as r:
+  api_url = api + f'?p={ps}'
+  with _open(api_url, timeout=15, method='POST', headers=hdrs, data=data) as r:
     sources = json.loads(_dcx(pd, r.read().decode()))
   files = [s['file'] for s in sources.get('sources', []) if s.get('file')]
   return files[0] if files else None

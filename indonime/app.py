@@ -44,10 +44,10 @@ def _install_webview2():
                              'menginstal otomatis...', 'Indonime', 0x40)
   dst = os.path.join(tempfile.gettempdir(), 'webview2-setup.exe')
   try:
-    urllib.request.urlretrieve(_BOOTSTRAP_URL, dst)
+    urllib.request.urlretrieve(_BOOTSTRAP_URL, dst)  # nosec B310: hardcoded Microsoft fwlink
     subprocess.run([dst, '--silent', '--install'], check=True)
-  except Exception:
-    pass
+  except Exception as e:
+    print(f'WebView2 auto-install gagal: {e}', file=sys.stderr)
   finally:
     if os.path.exists(dst):
       os.remove(dst)

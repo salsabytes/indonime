@@ -428,6 +428,48 @@ class _BatchBar:
       ctx.__exit__(None, None, None)
 
 
+def _queue_attempt(ep_idx, quality, prompt, agg, episode_list, plugin,
+                   key_source=None, out=None):
+  # One episode with auto-retry. Returns (q, size, reason, skipped).
+  # prompt=True → first pick, may ask the user at the quality prompt;
+  # prompt=False → parallel worker: never prompts, reuses quality.
+  title, url = episode_list[ep_idx]['title'], episode_list[ep_idx]['url']
+  if _already_downloaded(title):
+    return None, 0, None, True
+  # Mute the per-episode bar into StringIO whenever the batch bar is live —
+  # tuiko's bar is a single carriage-return line; concurrent bars would
+  # shred the terminal.
+  w_out = out if prompt else io.StringIO()
+  w_bar = io.StringIO() if agg else None
+  for attempt in range(_DL_RETRIES + 1):
+    q, size, reason = _download_episode(
+      title, url, plugin, key_source=key_source if prompt else None,
+      out=w_out, bar_out=w_bar, quality=quality, quiet=not prompt, agg=agg)
+    if q == _CANCEL or reason is None:
+      return q, size, reason, False
+    quality = q  # picked quality survives the failure → reuse on retry
+    if attempt < _DL_RETRIES:
+      print_warning(f"↻ {title}: {reason} — retry {attempt + 2}/{_DL_RETRIES + 1}")
+      time.sleep(1)  # rate-limit / transient blip recovery, not a tight loop
+  return q, size, reason, False
+
+
+def _queue_record(i, q, size, reason, skipped, stats, bar, episode_list):
+  key = _safe_name(episode_list[i]['title'])
+  title = episode_list[i]['title'][:50]
+  if skipped:
+    stats['skip'] += 1
+    bar.add_status(key, f"↺ {title} — sudah ada")
+  elif reason is None:
+    stats['ok'] += 1
+    stats['total'] += size
+    bar.add_status(key, f"✓ {title} — {_fmt_size(size)}")
+  else:
+    stats['fail'] += 1
+    stats['failed'].append((episode_list[i]['title'], reason))
+    bar.add_status(key, f"✘ {title} — {reason}")
+
+
 def _run_download_queue(episode_list, plugin, resume_idx, header,
                         key_source=None, out=None):
   # ctrl-d: multi-select download queue. The first pick resolves the quality
@@ -446,59 +488,18 @@ def _run_download_queue(episode_list, plugin, resume_idx, header,
 
   print_header("⬇ DOWNLOADING", "⬇")
   picks = sorted(picks)
-  ok = fail = skip = 0
-  total_bytes = 0
-  failed = []
+  stats = {'ok': 0, 'fail': 0, 'skip': 0, 'total': 0, 'failed': []}
   bar = _BatchBar(len(picks), out=out)
-
-  def _attempt(ep_idx, quality, prompt, agg=None):
-    # One episode with auto-retry. Returns (q, size, reason, skipped).
-    # prompt=True → first pick, may ask the user at the quality prompt;
-    # prompt=False → parallel worker: never prompts, reuses quality.
-    title, url = episode_list[ep_idx]['title'], episode_list[ep_idx]['url']
-    if _already_downloaded(title):
-      return None, 0, None, True
-    # Mute the per-episode bar into StringIO whenever the batch bar is live —
-    # tuiko's bar is a single carriage-return line; concurrent bars would
-    # shred the terminal.
-    w_out = out if prompt else io.StringIO()
-    w_bar = io.StringIO() if agg else None
-    for attempt in range(_DL_RETRIES + 1):
-      q, size, reason = _download_episode(
-        title, url, plugin, key_source=key_source if prompt else None,
-        out=w_out, bar_out=w_bar, quality=quality, quiet=not prompt, agg=agg)
-      if q == _CANCEL or reason is None:
-        return q, size, reason, False
-      quality = q  # picked quality survives the failure → reuse on retry
-      if attempt < _DL_RETRIES:
-        print_warning(f"↻ {title}: {reason} — retry {attempt + 2}/{_DL_RETRIES + 1}")
-        time.sleep(1)  # rate-limit / transient blip recovery, not a tight loop
-    return q, size, reason, False
-
-  def _record(i, q, size, reason, skipped):
-    nonlocal ok, fail, skip, total_bytes
-    key = _safe_name(episode_list[i]['title'])
-    title = episode_list[i]['title'][:50]
-    if skipped:
-      skip += 1
-      bar.add_status(key, f"↺ {title} — sudah ada")
-    elif reason is None:
-      ok += 1
-      total_bytes += size
-      bar.add_status(key, f"✓ {title} — {_fmt_size(size)}")
-    else:
-      fail += 1
-      failed.append((episode_list[i]['title'], reason))
-      bar.add_status(key, f"✘ {title} — {reason}")
 
   bar.start()
   try:
     # First pick: sequential + prompt once → the quality used by the whole batch.
     quality = None
-    q, size, reason, skipped = _attempt(picks[0], None, prompt=True, agg=bar)
+    q, size, reason, skipped = _queue_attempt(
+      picks[0], None, True, bar, episode_list, plugin, key_source, out)
     if q == _CANCEL:
       return  # user bailed at the quality prompt → stop the queue
-    _record(picks[0], q, size, reason, skipped)
+    _queue_record(picks[0], q, size, reason, skipped, stats, bar, episode_list)
     if reason is None:
       quality = q
 
@@ -506,16 +507,19 @@ def _run_download_queue(episode_list, plugin, resume_idx, header,
     rest = picks[1:]
     if rest:
       with ThreadPoolExecutor(max_workers=min(_DL_WORKERS, len(rest))) as ex:
-        futs = {ex.submit(_attempt, i, quality, False, bar): i for i in rest}
+        futs = {ex.submit(_queue_attempt, i, quality, False, bar,
+                          episode_list, plugin, key_source, None): i
+                for i in rest}
         for fut in as_completed(futs):
           i = futs[fut]
-          _record(i, *fut.result())
+          _queue_record(i, *fut.result(), stats, bar, episode_list)
   finally:
     bar.stop()
 
-  if ok or fail or skip:
-    print_success(f"Queue selesai — {ok} berhasil, {skip} sudah ada, {fail} gagal, {_fmt_size(total_bytes)}")
-    for title, reason in failed:
+  if stats['ok'] or stats['fail'] or stats['skip']:
+    print_success(f"Queue selesai — {stats['ok']} berhasil, {stats['skip']} sudah ada, "
+                  f"{stats['fail']} gagal, {_fmt_size(stats['total'])}")
+    for title, reason in stats['failed']:
       print_warning(f"{title}: {reason}")
     time.sleep(2)  # let the message be read before the list re-renders
 

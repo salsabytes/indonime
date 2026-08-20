@@ -218,7 +218,7 @@ class _Handler(BaseHTTPRequestHandler):
         return self._json(200, {'episodes': _load_plugin(provider).episodes(q('url'))})
       if path == '/api/downloads':
         dl = _load_plugin(provider).downloads(q('url'))
-        options = [{'label': l, 'url': u} for l, u in _compatible_servers(dl)]
+        options = [{'label': name, 'url': url} for name, url in _compatible_servers(dl)]
         return self._json(200, {'options': options})
       if path == '/api/jobs':
         with _jobs_lock:
