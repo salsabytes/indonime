@@ -30,6 +30,11 @@ Thumbs.db
 # mpv (downloaded)
 mpv/
 venv
+.venv/
+
+# React UI
+node_modules/
+indonime/ui/dist/
 
 AGENTS.md
 

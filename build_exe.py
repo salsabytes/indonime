@@ -9,6 +9,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
+UI_DIST = Path("ui/dist")
+if not (UI_DIST / "index.html").exists():
+  print("❌ ui/dist tidak ada. Build dulu: cd ui && npm install && npm run build")
+  sys.exit(1)
+
 if not shutil.which("pyinstaller"):
   print("❌ PyInstaller not found. Install: pip install pyinstaller")
   sys.exit(1)
@@ -22,7 +27,7 @@ PYINSTALLER_ARGS = [
   sys.executable, "-m", "PyInstaller",
   "--clean",
   "--onefile",
-  "--console",
+  "--noconsole",
   "--name", "Indonime",
   # dynamic imports — PyInstaller can't auto-detect these
   "--hidden-import", "cryptography",  # try/except import
@@ -30,7 +35,12 @@ PYINSTALLER_ARGS = [
   "--hidden-import", "indonime.plugins.anoboy",
   "--hidden-import", "indonime.ext.pdrain",
   "--hidden-import", "indonime.ext.megaNZ",
-  "indonime/__main__.py"
+  "--hidden-import", "indonime.server",
+  "--hidden-import", "indonime.app",
+  "--hidden-import", "webview.platforms.edgechromium",
+  # React build (static files served by indonime.server)
+  "--add-data", f"{UI_DIST};ui/dist",
+  "indonime/app.py"
 ]
 
 if __name__ == "__main__":

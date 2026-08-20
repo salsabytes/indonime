@@ -5,6 +5,7 @@
 #   episodes(url: str)      -> list[dict]
 #   downloads(url: str)     -> dict        # {quality: {server: url}}
 import json
+import re
 import sys
 import time
 import urllib.parse
@@ -141,3 +142,11 @@ def safe(fb):
         return fb
     return wrap
   return dec
+
+# Wordpress-style size suffix → original file:
+# ".../img-236x350.jpg" → ".../img.jpg" (also drops ?resize=/w=/h= params).
+def full_image(url):
+  if not url:
+    return ''
+  url = re.sub(r'[?&](?:resize|w|h|fit|crop)=[^&#]*', '', url)
+  return re.sub(r'-\d+x\d+(?=\.[a-zA-Z0-9]+$)', '', url)

@@ -1,5 +1,5 @@
 # Anoboy provider: search, episodes, download links.
-from ._base import catalog_links, fetch_soup, cached, safe
+from ._base import catalog_links, fetch_soup, cached, safe, full_image
 
 BASE = 'https://anoboy7.com'
 
@@ -10,9 +10,48 @@ def search_anime(query):
   q = query.replace(' ', '-')
   soup = fetch_soup(f'{BASE}/search/{q}/')
   return [
-    {'title': td.find('a').text.strip(), 'url': BASE + td.find('a')['href']}
+    {'title': td.find('a').text.strip(), 'url': BASE + td.find('a')['href'], 'image': ''}
     for td in soup.find_all('td', class_='videsc')
   ]
+
+
+@safe([])
+@cached(ttl=300)
+def latest():
+  # Home page: latest posts with posters.
+  soup = fetch_soup(f'{BASE}/')
+  items = []
+  for a in soup.find_all('a', href=True):
+    if '/anime/' not in a['href']:
+      continue
+    img = a.find('img')
+    src = (img.get('src') or img.get('data-src') or '') if img else ''
+    if not src:
+      continue
+    src = src if src.startswith('http') else BASE + src
+    items.append({
+      'title': (a.get('title') or '').strip() or a.get_text(' ', strip=True),
+      'url': BASE + a['href'],
+      'image': src,
+      'image_full': full_image(src),
+    })
+  return items
+
+
+@safe({})
+@cached(ttl=600)
+def info(url):
+  # Detail page → poster + title (anoboy has no synopsis).
+  soup = fetch_soup(url)
+  img = soup.find('img', src=lambda s: s and '/img/' in s)
+  title = soup.title.text.strip() if soup.title else ''
+  if ' - anoBoy' in title:
+    title = title.replace(' - anoBoy', '')
+  return {
+    'title': title,
+    'image': (BASE + img['src']) if img else '',
+    'synopsis': '',
+  }
 
 
 @safe([])
