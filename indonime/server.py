@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import (
   _compatible_servers, _download_mega, _download_pdrain,
-  _get_catalog, _play_mega, _safe_name,
+  _get_catalog, _is_mega_link, _play_mega, _safe_name,
 )
 from . import plugins
 from .ext import gdrive, pdrain
@@ -131,7 +131,7 @@ def _dl_worker(jid, server_url, title):
   out = io.StringIO()
   agg = _JobBar(jid)
   try:
-    if 'mega' in server_url.lower():
+    if _is_mega_link(server_url):
       dest, size, reason = _download_mega(server_url, _safe_name(title), _DL_DIR,
                                           out=out, agg=agg)
     elif 'gdrive' in server_url.lower():
@@ -230,7 +230,7 @@ class _Handler(BaseHTTPRequestHandler):
   def _play(self, body):
     try:
       url = body.get('server_url', '')
-      if 'mega' in url.lower():
+      if _is_mega_link(url):
         ok, _ = _play_mega(url, out=io.StringIO())
         return self._json(200, {'mpv': True}) if ok else self._json(500, {'error': 'Mega stream gagal'})
       scraper = gdrive.scrape if 'gdrive' in url.lower() else pdrain.scrape
