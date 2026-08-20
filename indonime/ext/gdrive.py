@@ -25,6 +25,11 @@ from ..plugins._base import http_get, http_head
 from ..ui import Palette
 from tuiko import style
 
+# Inline scripts: no src attr, content up to the closing tag. The end-tag
+# allows trailing whitespace/attrs — `</script\n bar>` must still terminate.
+_SCRIPT_RE = re.compile(r'<script(?![^>]*src)[^>]*>([\s\S]*?)</script\s*[^>]*>',
+                        re.IGNORECASE)
+
 
 # ── AAEncode decoder (gdplayer page obfuscation) ──────────────────────────────
 
@@ -194,7 +199,7 @@ def _gdplayer_url(url):
   # Full API flow: page vars → config → sources → decrypted video URL.
   _, _, _, body = http_get(url, timeout=15)
   html = body.decode('utf-8', 'replace')
-  scripts = re.findall(r'<script(?![^>]*src)[^>]*>([\s\S]*?)</script\s*>', html, re.IGNORECASE)
+  scripts = _SCRIPT_RE.findall(html)
   if not scripts:
     return None
   vars_ = _page_vars(max(scripts, key=len))

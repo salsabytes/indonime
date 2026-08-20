@@ -10,7 +10,10 @@ import sys
 import threading
 import unittest
 import urllib.error
+import urllib.parse
 from contextlib import nullcontext
+
+from indonime.plugins import _base
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -69,6 +72,18 @@ def tearDownModule():
   _SRV.shutdown()
 
 class TestHttpLayer(unittest.TestCase):
+  @classmethod
+  def setUpClass(cls):
+    # Allow the local test server through the SSRF allowlist; every other
+    # host stays blocked.
+    cls._orig_allowed = _base._url_allowed
+    _base._url_allowed = lambda url: (
+      urllib.parse.urlparse(url).hostname == '127.0.0.1' or cls._orig_allowed(url))
+
+  @classmethod
+  def tearDownClass(cls):
+    _base._url_allowed = cls._orig_allowed
+
   def test_get(self):
     u, st, _, body = http_get(BASE + "/ok")
     self.assertEqual(st, 200)

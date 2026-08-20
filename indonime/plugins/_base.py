@@ -8,6 +8,7 @@ import json
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from bs4 import BeautifulSoup
@@ -43,11 +44,22 @@ def _url_allowed(url):
   return (host in _ALLOWED_HOSTS
           or host.endswith('.mega.co.nz') or host.endswith('.mega.nz'))
 
+# Redirect hops re-checked against the allowlist — urlopen follows redirects
+# automatically, so a host allowed for the first request must not be able to
+# point us anywhere else (classic SSRF guard bypass).
+class _GuardRedirects(urllib.request.HTTPRedirectHandler):
+  def redirect_request(self, req, fp, code, msg, headers, newurl):
+    if not _url_allowed(newurl):
+      raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+    return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+_opener = urllib.request.build_opener(_GuardRedirects)
+
 def _open(url, timeout, method=None, headers=None, data=None):
   if not _url_allowed(url):
     raise ValueError(f"URL diblokir: {url}")
   req = urllib.request.Request(url, data=data, headers=headers or HEADERS, method=method)
-  return urllib.request.urlopen(req, timeout=timeout)
+  return _opener.open(req, timeout=timeout)
 
 # GET → (final_url, status, headers, body). Raises on HTTP/network error.
 def http_get(url, timeout=15, headers=None):
