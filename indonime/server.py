@@ -46,6 +46,8 @@ _catalog_lock = threading.Lock()
 
 
 def _catalog_path(provider):
+  if '/' in provider or '\\' in provider or provider in ('.', '..'):
+    raise ValueError(f'bad provider: {provider}')
   return os.path.join(os.path.expanduser("~"), ".indonime", f"catalog-{provider}.json")
 
 

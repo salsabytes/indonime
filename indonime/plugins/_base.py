@@ -4,6 +4,7 @@
 #   search_anime(query: str) -> list[dict]  # [{title, url}]
 #   episodes(url: str)      -> list[dict]
 #   downloads(url: str)     -> dict        # {quality: {server: url}}
+import ipaddress
 import json
 import re
 import sys
@@ -25,11 +26,31 @@ def _scheme_ok(url):
   # Bandit B310: only allow http(s) — never file:/ custom schemes.
   return urllib.parse.urlparse(url).scheme in ('http', 'https')
 
-def _open(url, timeout, method=None, headers=None, data=None):
+def _url_allowed(url):
+  # SSRF guard at the sink: never fetch localhost or private/loopback/link-local
+  # addresses. DNS names resolving to private IPs are not covered.
   if not _scheme_ok(url):
-    raise ValueError(f"Non-HTTP URL blocked: {url}")
+    return False
+  host = urllib.parse.urlparse(url).hostname
+  if not host:
+    return False
+  if host.lower() == 'localhost':
+    return False
+  try:
+    ip = ipaddress.ip_address(host)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+      ip = ip.ipv4_mapped
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+      return False
+  except ValueError:
+    pass  # DNS name, not an IP literal
+  return True
+
+def _open(url, timeout, method=None, headers=None, data=None):
+  if not _url_allowed(url):
+    raise ValueError(f"URL diblokir: {url}")
   req = urllib.request.Request(url, data=data, headers=headers or HEADERS, method=method)
-  return urllib.request.urlopen(req, timeout=timeout)  # nosec B310: scheme guarded above
+  return urllib.request.urlopen(req, timeout=timeout)
 
 # GET → (final_url, status, headers, body). Raises on HTTP/network error.
 def http_get(url, timeout=15, headers=None):

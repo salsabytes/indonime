@@ -194,7 +194,7 @@ def _gdplayer_url(url):
   # Full API flow: page vars → config → sources → decrypted video URL.
   _, _, _, body = http_get(url, timeout=15)
   html = body.decode('utf-8', 'replace')
-  scripts = re.findall(r'<script(?![^>]*src)[^>]*>([\s\S]*?)</script>', html, re.IGNORECASE)
+  scripts = re.findall(r'<script(?![^>]*src)[^>]*>([\s\S]*?)</script\s*>', html, re.IGNORECASE)
   if not scripts:
     return None
   vars_ = _page_vars(max(scripts, key=len))
