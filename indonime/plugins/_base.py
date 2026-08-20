@@ -28,9 +28,13 @@ HEADERS = {
 # inlined as `re.compile(...).fullmatch(url)` — CodeQL models that exact
 # expression as a sanitizer barrier and will not flag the fetch sinks below.
 _ALLOWED_HOST_RE = (
+  # Subdomains allowed (([\w-]+\.)*) — CDNs serve video from e.g.
+  # video.gdplayer.to. Anchored so evil-gdplayer.to still fails.
   r'^(?:https?://(?:'
-  r'otakudesu\.blog|anoboy7\.com|pixeldrain\.com|g\.api\.mega\.co\.nz|'
-  r'mega\.nz|dl\.xtwap\.top|gdplayer\.to|[\w.-]+\.mega\.co\.nz|[\w.-]+\.mega\.nz'
+  r'(?:[\w-]+\.)*otakudesu\.blog|(?:[\w-]+\.)*anoboy7\.com|'
+  r'(?:[\w-]+\.)*pixeldrain\.com|(?:[\w-]+\.)*mega\.co\.nz|'
+  r'(?:[\w-]+\.)*mega\.nz|(?:[\w-]+\.)*dl\.xtwap\.top|'
+  r'(?:[\w-]+\.)*gdplayer\.to'
   r')(?::\d+)?(?:[/?#].*)?)$'
 )
 

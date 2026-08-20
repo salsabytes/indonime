@@ -49,7 +49,20 @@ def test_script_regex_matches_whitespace_end_tag():
   assert _SCRIPT_RE.findall('<script src="x.js"></script>') == []
 
 
+def test_allowlist_matches_hosts_and_subdomains_only():
+  ok = ['https://gdplayer.to/v.mp4', 'https://video.gdplayer.to/v.mp4',
+        'https://dl.xtwap.top/x', 'https://g.api.mega.co.nz/dl',
+        'https://mega.nz/file/x', 'https://pixeldrain.com/api/file/x']
+  bad = ['https://gdplayer.to.evil.com/x', 'https://evilgdplayer.to/x',
+         'http://127.0.0.1/x', 'https://mega.evil.com/x']
+  for u in ok:
+    assert _base._url_allowed(u), f'expected allowed: {u}'
+  for u in bad:
+    assert not _base._url_allowed(u), f'expected blocked: {u}'
+
+
 if __name__ == '__main__':
   test_redirect_hop_is_guarded()
   test_script_regex_matches_whitespace_end_tag()
+  test_allowlist_matches_hosts_and_subdomains_only()
   print('test_security OK')
