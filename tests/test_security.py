@@ -1,5 +1,6 @@
 # Security guards: redirect allowlist + script end-tag regex.
 # No network beyond a local throwaway HTTP server.
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -29,7 +30,11 @@ def test_redirect_hop_is_guarded():
     base = f'http://127.0.0.1:{srv.server_port}'
     def allow(url):
       return url.startswith(base) and not url.endswith('/hop')
-    orig = _base._url_allowed
+    # _open compiles _ALLOWED_HOST_RE fresh per call — patch the regex so the
+    # primary guard lets localhost through, leaving the mocked _url_allowed
+    # (redirect-hop guard) as the thing under test.
+    orig_re, orig_allowed = _base._ALLOWED_HOST_RE, _base._url_allowed
+    _base._ALLOWED_HOST_RE = re.escape(base) + r'(?:/hop)?/?$'
     _base._url_allowed = allow
     try:
       _base.http_get(base + '/')
@@ -38,7 +43,8 @@ def test_redirect_hop_is_guarded():
     else:
       raise AssertionError('redirect to disallowed host was followed')
     finally:
-      _base._url_allowed = orig
+      _base._ALLOWED_HOST_RE = orig_re
+      _base._url_allowed = orig_allowed
   finally:
     srv.shutdown()
 
@@ -50,7 +56,7 @@ def test_script_regex_matches_whitespace_end_tag():
 
 
 def test_allowlist_matches_hosts_and_subdomains_only():
-  ok = ['https://gdplayer.to/v.mp4', 'https://video.gdplayer.to/v.mp4',
+  ok = ['https://link.desustream.com/?id=abc==', 'https://gdplayer.to/v.mp4', 'https://video.gdplayer.to/v.mp4',
         'https://dl.xtwap.top/x', 'https://g.api.mega.co.nz/dl',
         'https://mega.nz/file/x', 'https://pixeldrain.com/api/file/x']
   bad = ['https://gdplayer.to.evil.com/x', 'https://evilgdplayer.to/x',

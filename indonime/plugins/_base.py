@@ -33,8 +33,8 @@ _ALLOWED_HOST_RE = (
   r'^(?:https?://(?:'
   r'(?:[\w-]+\.)*otakudesu\.blog|(?:[\w-]+\.)*anoboy7\.com|'
   r'(?:[\w-]+\.)*pixeldrain\.com|(?:[\w-]+\.)*mega\.co\.nz|'
-  r'(?:[\w-]+\.)*mega\.nz|(?:[\w-]+\.)*dl\.xtwap\.top|'
-  r'(?:[\w-]+\.)*gdplayer\.to'
+  r'(?:[\w-]+\.)*mega\.co\.nz|(?:[\w-]+\.)*mega\.nz|(?:[\w-]+\.)*dl\.xtwap\.top|'
+  r'(?:[\w-]+\.)*gdplayer\.to|link\.desustream\.com'
   r')(?::\d+)?(?:[/?#].*)?)$'
 )
 
