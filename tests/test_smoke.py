@@ -76,13 +76,13 @@ class TestHttpLayer(unittest.TestCase):
   def setUpClass(cls):
     # Allow the local test server through the SSRF allowlist; every other
     # host stays blocked.
-    cls._orig_allowed = _base._url_allowed
-    _base._url_allowed = lambda url: (
-      urllib.parse.urlparse(url).hostname == '127.0.0.1' or cls._orig_allowed(url))
+    cls._orig_re = _base._ALLOWED_HOST_RE
+    _base._ALLOWED_HOST_RE = cls._orig_re.replace(
+      r'gdplayer\.to', r'gdplayer\.to|127\.0\.0\.1')
 
   @classmethod
   def tearDownClass(cls):
-    _base._url_allowed = cls._orig_allowed
+    _base._ALLOWED_HOST_RE = cls._orig_re
 
   def test_get(self):
     u, st, _, body = http_get(BASE + "/ok")
