@@ -1,3 +1,6 @@
+// Real API — talks to the Python backend (indonime/server.py, port 8756).
+// Vite proxies /api → http://127.0.0.1:8756 (see vite.config.js).
+
 async function get(path) {
   const r = await fetch(path)
   const j = await r.json()
@@ -28,4 +31,6 @@ export const api = {
   play: u => post('/api/play', { server_url: u }),
   download: (u, t) => post('/api/download', { server_url: u, title: t }),
   jobs: () => get('/api/jobs'),
+  // Backend has no /api/latest yet — the home endpoint IS the latest posts.
+  latest: p => get(`/api/home?provider=${p}`),
 }

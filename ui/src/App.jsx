@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 
-const _noPoster = new Set()  // URLs confirmed without a cover — never refetch
-const _synCache = new Map()  // detail URL → synopsis — never refetch
+const _noPoster = new Set()
 const HERO_MS = 6000
 
 const Ic = {
-  search: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>,
-  play: <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86a1 1 0 0 0-1.5.86Z" /></svg>,
-  down: <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 11 5 5 5-5" /><path d="M4 21h16" /></svg>,
-  back: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>,
-  home: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></svg>,
-  x: <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>,
-  grid: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>,
+  search: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>,
+  play: <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86a1 1 0 0 0-1.5.86Z" /></svg>,
+  playLg: <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86a1 1 0 0 0-1.5.86Z" /></svg>,
+  down: <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12" /><path d="m7 11 5 5 5-5" /><path d="M4 21h16" /></svg>,
+  back: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>,
+  home: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></svg>,
+  x: <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>,
+  chev: <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>,
+  flame: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" /></svg>,
+  clock: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>,
+  star: <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>,
+  chev: <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>,
 }
 
 export default function App() {
@@ -23,21 +27,27 @@ export default function App() {
   const [searching, setSearching] = useState(false)
   const [catalog, setCatalog] = useState(null)
   const [featured, setFeatured] = useState([])
-  const [view, setView] = useState('home')        // home | anime | player
-  const [anime, setAnime] = useState(null)        // {item, info, episodes}
+  const [latest, setLatest] = useState(null)
+  const [genre, setGenre] = useState('Semua')
+  const [view, setView] = useState('home')
+  const [anime, setAnime] = useState(null)
   const [stream, setStream] = useState(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState(null)
   const [jobs, setJobs] = useState([])
+  const searchRef = useRef(null)
 
   useEffect(() => {
     api.providers().then(r => setProviders(r.providers)).catch(() => {})
   }, [])
 
   useEffect(() => {
-    setCatalog(null); setFeatured([]); setResults(null)
-    api.catalog(provider).then(r => setCatalog(r.catalog)).catch(e => setError(e.message))
-    api.home(provider).then(r => setFeatured(r.items)).catch(() => {})
+    let alive = true
+    setCatalog(null); setFeatured([]); setLatest(null)
+    api.catalog(provider).then(r => alive && setCatalog(r.catalog)).catch(() => {})
+    api.home(provider).then(r => alive && setFeatured(r.items)).catch(() => {})
+    api.latest(provider).then(r => alive && setLatest(r.items)).catch(() => {})
+    return () => { alive = false }
   }, [provider])
 
   useEffect(() => {
@@ -65,6 +75,7 @@ export default function App() {
       ])
       setAnime({ item, info: info.info, episodes: eps.episodes })
       setView('anime'); setResults(null)
+      window.scrollTo({ top: 0 })
     } catch (err) { setError(err.message) }
     finally { setBusy('') }
   }
@@ -85,13 +96,67 @@ export default function App() {
     api.download(opt.url, `${base} — ${ep.title}`).catch(err => setError(err.message))
   }
 
-  const activeJobs = jobs.filter(j => j.status === 'running' || j.status === 'failed')
+  const genres = useMemo(() => {
+    const s = new Set((catalog || []).flatMap(i => i.genre || []))
+    return ['Semua', ...s]
+  }, [catalog])
+
+  const onPickResult = item => {
+    pickAnime(item)
+    if (searchRef.current) searchRef.current.focus()
+  }
 
   return (
     <div className="app">
-      <header className="topbar">
-        <button className="logo" onClick={goHome}>INDONIME</button>
-        <nav className="tabs" role="tablist" aria-label="Provider">
+      <Header providers={providers} provider={provider} setProvider={setProvider}
+              query={query} setQuery={setQuery} onSearch={onSearch} onHome={goHome}
+              searchRef={searchRef} />
+
+      {error && (
+        <div className="toast error-toast" role="alert">
+          <span>{error}</span>
+          <button className="icon-btn" onClick={() => setError(null)} aria-label="Tutup">{Ic.x}</button>
+        </div>
+      )}
+      {busy && (
+        <div className="toast busy-toast" role="status">
+          <span className="spinner" />{busy}
+        </div>
+      )}
+
+      <main>
+        {view === 'home' && (
+          <HomeView featured={featured} catalog={catalog} latest={latest}
+                    results={results} searching={searching} query={query}
+                    provider={provider} genres={genres} genre={genre} setGenre={setGenre}
+                    onPick={onPickResult} />
+        )}
+        {view === 'anime' && anime && (
+          <AnimeView anime={anime} provider={provider} onPlay={handlePlay}
+                     onDownload={handleDownload} onBack={goHome} />
+        )}
+        {view === 'player' && stream && (
+          <PlayerView stream={stream} onBack={() => setView('anime')} />
+        )}
+      </main>
+
+      {view === 'home' && <Footer />}
+      {jobs.length > 0 && <JobToasts jobs={jobs} />}
+    </div>
+  )
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+
+function Header({ providers, provider, setProvider, query, setQuery, onSearch, onHome, searchRef }) {
+  return (
+    <header className="topbar">
+      <div className="topbar-inner">
+        <button className="logo" onClick={onHome} aria-label="Indonime — beranda">
+          <span className="logo-mark">{Ic.playLg}</span>
+          <span className="logo-text">INDO<span>NIME</span></span>
+        </button>
+        <nav className="tabs" role="tablist" aria-label="Pilih sumber">
           {providers.map(p => (
             <button key={p} role="tab" aria-selected={p === provider}
                     className={`tab ${p === provider ? 'on' : ''}`}
@@ -99,182 +164,129 @@ export default function App() {
           ))}
         </nav>
         <form className="search" onSubmit={onSearch} role="search">
-          <input value={query} onChange={e => setQuery(e.target.value)}
+          <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
                  placeholder="Cari anime…" aria-label="Cari anime" />
           <button type="submit" aria-label="Cari">{Ic.search}</button>
         </form>
-        <button className="icon-btn" onClick={goHome} aria-label="Beranda">{Ic.home}</button>
-      </header>
-
-      {error && (
-        <div className="error" role="alert">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} aria-label="Tutup">{Ic.x}</button>
-        </div>
-      )}
-      {busy && <div className="busy"><span className="spinner" />{busy}</div>}
-
-      <main>
-        {view === 'home' && (
-          <HomeView catalog={catalog} results={results} searching={searching}
-                    featured={featured} query={query} provider={provider}
-                    onPick={pickAnime} />
-        )}
-        {view === 'anime' && anime && (
-          <AnimeView anime={anime} onPlay={handlePlay} onDownload={handleDownload}
-                     onBack={goHome} />
-        )}
-        {view === 'player' && stream && (
-          <div className="player">
-            <video src={stream} controls autoPlay className="video" />
-            <p className="hint">Video tidak muncul? Coba resolusi atau server lain.</p>
-            <button className="btn ghost" onClick={() => setView('anime')}>
-              {Ic.back} Kembali
-            </button>
-          </div>
-        )}
-      </main>
-
-      {activeJobs.length > 0 && (
-        <footer className="jobs">
-          {activeJobs.slice(-4).map(j => (
-            <div key={j.id} className="job">
-              <span className="job-title">{j.title}</span>
-              {j.status === 'running' && (
-                <>
-                  <div className="bar"><div style={{ width: pct(j) }} /></div>
-                  <span className="dim">{pct(j)}</span>
-                </>
-              )}
-              {j.status === 'failed' && <span className="bad">{j.error}</span>}
-            </div>
-          ))}
-        </footer>
-      )}
-    </div>
+        <button className="icon-btn home-btn" onClick={onHome} aria-label="Beranda">{Ic.home}</button>
+      </div>
+    </header>
   )
 }
 
-function pct(j) {
-  return j.total ? `${Math.round((j.done / j.total) * 100)}%` : '…'
-}
+/* ── Home ───────────────────────────────────────────────── */
 
-function HomeView({ catalog, results, searching, featured, query, provider, onPick }) {
-  if (searching) return <p className="hint"><span className="spinner" />Mencari…</p>
+function HomeView({ featured, catalog, latest, results, searching, query, provider, genres, genre, setGenre, onPick }) {
+  if (searching) return <p className="hint center"><span className="spinner" />Mencari…</p>
+
   if (results) {
-    if (!results.length) return <p className="hint">Tidak ada hasil untuk “{query}”.</p>
     return (
-      <section>
-        <SectionTitle>Hasil pencarian “{query}”</SectionTitle>
-        <div className="grid">{results.map((it, i) => <PosterCard key={i} item={it} i={i} provider={provider} onPick={onPick} />)}</div>
-      </section>
-    )
-  }
-  if (!catalog) {
-    return (
-      <div className="grid" aria-hidden="true">
-        {Array.from({ length: 24 }, (_, i) => (
-          <div key={i} className="card skeleton" style={{ animationDelay: `${Math.min(i, 14) * 40}ms` }}>
-            <div className="poster shimmer" />
-            <span className="card-title skeleton-line" />
-          </div>
-        ))}
+      <div className="wrap page-pad">
+        <section>
+          <SectionTitle icon={Ic.search}>Hasil untuk “{query}”</SectionTitle>
+          {results.length === 0
+            ? <p className="hint center">Tidak ada hasil. Coba judul lain.</p>
+            : <div className="grid">{results.map((it, i) => <Card key={it.url} item={it} i={i} provider={provider} onPick={onPick} />)}</div>}
+        </section>
       </div>
     )
   }
+
   return (
     <>
-      {featured.length > 0 && (
-        <Hero items={featured} provider={provider} onPick={onPick} />
-      )}
-      <section>
-        <SectionTitle>Katalog</SectionTitle>
-        <CatalogGrid catalog={catalog} provider={provider} onPick={onPick} />
-      </section>
+      {featured.length > 0 && <Hero items={featured} provider={provider} onPick={onPick} />}
+
+      <div className="wrap page-pad">
+        <section className="stats" aria-label="Statistik">
+          <div><strong>{catalog?.length || '—'}</strong><span>Judul anime</span></div>
+          <div><strong>4K</strong><span>Kualitas stream</span></div>
+          <div><strong>24/7</strong><span>Update episode</span></div>
+        </section>
+
+        <section aria-labelledby="latest-title">
+          <Rail title="Rilis Terbaru" icon={Ic.clock} id="latest-title"
+                toolbar={genres.length > 1
+                  ? <GenreChips genres={genres} active={genre} onPick={setGenre} />
+                  : null}>
+            {!latest
+              ? <SkeletonRail n={8} />
+              : latest.filter(i => genre === 'Semua' || (i.genre || []).includes(genre)).map((it, i) => (
+                  <Card key={it.url} item={it} i={i} provider={provider} onPick={onPick} />
+                ))}
+          </Rail>
+        </section>
+
+        <section aria-labelledby="popular-title">
+          <Rail title="Paling Populer" icon={Ic.flame} id="popular-title" wide>
+            {!catalog
+              ? <SkeletonRail n={5} wide />
+              : catalog.slice(0, 8).map((it, i) => (
+                  <RankCard key={it.url} item={it} i={i} provider={provider} onPick={onPick} />
+                ))}
+          </Rail>
+        </section>
+      </div>
     </>
   )
 }
 
-const PAGE_SIZE = 48
+function Rail({ title, icon, id, toolbar, children, wide }) {
+  const ref = useRef(null)
+  const [canLeft, setCanLeft] = useState(false)
+  const [canRight, setCanRight] = useState(true)
 
-function CatalogGrid({ catalog, provider, onPick }) {
-  const [page, setPage] = useState(1)
-  const total = Math.ceil(catalog.length / PAGE_SIZE)
-
-  useEffect(() => { setPage(1) }, [catalog])
+  const onScroll = () => {
+    const el = ref.current
+    if (!el) return
+    setCanLeft(el.scrollLeft > 4)
+    setCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4)
+  }
 
   useEffect(() => {
-    document.querySelector('main')?.scrollTo({ top: 0 })
-  }, [page])
+    onScroll()
+    const el = ref.current
+    el?.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      el?.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [children])
 
-  const pages = useMemo(() => {
-    const out = []
-    const lo = Math.max(1, page - 2)
-    const hi = Math.min(total, page + 2)
-    if (lo > 1) out.push(1)
-    if (lo > 2) out.push('…')
-    for (let i = lo; i <= hi; i++) out.push(i)
-    if (hi < total - 1) out.push('…')
-    if (hi < total) out.push(total)
-    return out
-  }, [page, total])
-
-  const start = (page - 1) * PAGE_SIZE
+  const step = wide ? 360 : 200
+  const go = d => ref.current?.scrollBy({ left: d * step, behavior: 'smooth' })
 
   return (
-    <>
-      <div className="grid">
-        {catalog.slice(start, start + PAGE_SIZE).map((it, i) => (
-          <PosterCard key={i} item={it} i={i} provider={provider} onPick={onPick} />
-        ))}
+    <section aria-labelledby={id}>
+      <div className="section-head">
+        <SectionTitle id={id} icon={icon}>{title}</SectionTitle>
+        <div className="rail-arrows">
+          <button className="rail-btn" onClick={() => go(-1)} disabled={!canLeft}
+                  aria-label={`Geser ${title} ke kiri`}>‹</button>
+          <button className="rail-btn" onClick={() => go(1)} disabled={!canRight}
+                  aria-label={`Geser ${title} ke kanan`}>›</button>
+        </div>
       </div>
-      <nav className="pager" aria-label="Halaman">
-        <button className="pg" onClick={() => setPage(page - 1)} disabled={page === 1}
-                aria-label="Sebelumnya">‹</button>
-        {pages.map((p, i) => (
-          p === '…'
-            ? <span key={`e${i}`} className="pg-ellipsis">…</span>
-            : <button key={p} className={`pg ${p === page ? 'on' : ''}`}
-                      onClick={() => setPage(p)} aria-current={p === page ? 'page' : undefined}>{p}</button>
-        ))}
-        <button className="pg" onClick={() => setPage(page + 1)} disabled={page === total}
-                aria-label="Berikutnya">›</button>
-      </nav>
-    </>
-  )
-}
-
-function SectionTitle({ children }) {
-  return <h2 className="section-title">{children}</h2>
-}
-
-function PosterCard({ item, i, provider, onPick }) {
-  return (
-    <button className="card" onClick={() => onPick(item)}
-            style={{ animationDelay: `${Math.min(i, 14) * 40}ms` }}>
-      <Poster item={item} provider={provider} />
-      <span className="card-title">{item.title}</span>
-    </button>
+      {toolbar}
+      <div className={`rail${wide ? ' wide' : ''}`} ref={ref}>{children}</div>
+    </section>
   )
 }
 
 function Hero({ items, provider, onPick }) {
   const [idx, setIdx] = useState(0)
   const [paused, setPaused] = useState(false)
-  const [syn, setSyn] = useState('')
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const slides = items.slice(0, 6)
   const n = slides.length
   const it = slides[idx]
   const go = i => setIdx((i + n) % n)
 
   useEffect(() => {
-    if (!it) return
-    if (_synCache.has(it.url)) { setSyn(_synCache.get(it.url)); return }
-    setSyn('')
-    api.info(it.url, provider)
-      .then(r => { _synCache.set(it.url, r.info.synopsis || ''); setSyn(_synCache.get(it.url)) })
-      .catch(() => _synCache.set(it.url, ''))
-  }, [idx, it, provider])
+    if (reduced || paused || n < 2) return
+    const t = setInterval(() => setIdx(i => (i + 1) % n), HERO_MS)
+    return () => clearInterval(t)
+  }, [paused, n, reduced])
 
   useEffect(() => {
     if (n < 2) return
@@ -282,77 +294,138 @@ function Hero({ items, provider, onPick }) {
     img.src = slides[(idx + 1) % n].image_full || slides[(idx + 1) % n].image || ''
   }, [idx, slides, n])
 
-  // prefers-reduced-motion: CSS auto-advance is disabled → drive it by timer.
-  useEffect(() => {
-    const rm = window.matchMedia('(prefers-reduced-motion: reduce)')
-    if (!rm.matches || paused || n < 2) return
-    const t = setInterval(() => setIdx(i => (i + 1) % n), HERO_MS)
-    return () => clearInterval(t)
-  }, [paused, n])
-
   if (!it) return null
 
   return (
-    <div className="spotlight"
-         onMouseEnter={() => setPaused(true)}
-         onMouseLeave={() => setPaused(false)}>
-      <div className="spotlight-backdrop" key={`b${idx}`} aria-hidden="true">
-        <HeroImg it={it} fallback className="spotlight-backdrop-img" />
-        <div className="spotlight-veil" />
+    <section className="hero"
+             onMouseEnter={() => setPaused(true)}
+             onMouseLeave={() => setPaused(false)}>
+      <div className="hero-backdrop" key={`b${idx}`} aria-hidden="true">
+        <HeroImg it={it} className="hero-bg" />
+        <div className="hero-veil" />
       </div>
 
-      <div className="spotlight-content" key={`c${idx}`}>
-        <span className="spotlight-chip"><i aria-hidden="true" />{provider}</span>
-        <h2>{it.title}</h2>
-        {syn && <p className="spotlight-synopsis">{syn}</p>}
-        <div className="spotlight-actions">
-          <button className="spotlight-cta" onClick={() => onPick(it)}>{Ic.play} Lihat Detail</button>
+      <div className="hero-content wrap" key={`c${idx}`}>
+        <div className="hero-text">
+          <span className="hero-chip"><i aria-hidden="true" />{provider}</span>
+          <h1>{it.title}</h1>
+          {it.synopsis && <p className="hero-synopsis">{it.synopsis}</p>}
+          <div className="hero-actions">
+            <button className="btn primary" onClick={() => onPick(it)}>{Ic.playLg} Lihat Detail</button>
+            {it.ep && <button className="btn ghost" onClick={() => onPick(it)}>{Ic.clock} Episode {it.ep}</button>}
+          </div>
         </div>
-      </div>
-
-      <div className="spotlight-poster-wrap" key={`p${idx}`}>
-        <button className="spotlight-poster" onClick={() => onPick(it)}
-                aria-label={`Lihat detail: ${it.title}`}>
-          <HeroImg it={it} fallback className="spotlight-poster-img" />
-          <span className="spotlight-poster-play">{Ic.play}</span>
-        </button>
+        <img className="hero-cover" src={it.image_full || it.image} alt=""
+             onError={e => (e.currentTarget.style.display = 'none')} />
       </div>
 
       {n > 1 && (
         <>
-          <button className="spotlight-arrow left" onClick={() => go(idx - 1)}
-                  aria-label="Slide sebelumnya">‹</button>
-          <button className="spotlight-arrow right" onClick={() => go(idx + 1)}
-                  aria-label="Slide berikutnya">›</button>
-          <div className="spotlight-segs" role="tablist" aria-label="Navigasi slide">
+          <button className="hero-arrow left" onClick={() => go(idx - 1)} aria-label="Slide sebelumnya">‹</button>
+          <button className="hero-arrow right" onClick={() => go(idx + 1)} aria-label="Slide berikutnya">›</button>
+          <div className="hero-segs" role="tablist" aria-label="Navigasi slide">
             {slides.map((s, i) => (
-              <button key={i} className={`spotlight-seg${i === idx ? ' on' : i < idx ? ' done' : ''}`}
-                      onClick={() => go(i)} aria-label={`Slide ${i + 1}`}
+              <button key={i} className={`hero-seg${i === idx ? ' on' : ''}`}
+                      onClick={() => go(i)} aria-label={`Slide ${i + 1}: ${s.title}`}
                       aria-current={i === idx ? 'true' : undefined}>
                 {i === idx && (
-                  <span key={`f${idx}`} className="spotlight-seg-fill"
+                  <span key={`f${idx}`} className="hero-seg-fill"
                         style={{ animationPlayState: paused ? 'paused' : 'running' }}
-                        onAnimationEnd={() => go(idx + 1)} />
+                        onAnimationEnd={reduced ? null : () => go(idx + 1)} />
                 )}
               </button>
             ))}
           </div>
         </>
       )}
+    </section>
+  )
+}
+
+function HeroImg({ it, className }) {
+  const [src, setSrc] = useState(it.image_full || it.image || '')
+  useEffect(() => { setSrc(it.image_full || it.image || '') }, [it])
+  if (!src) return null
+  // otakudesu covers are low-res; always blur so the full-bleed hero never shows pixels.
+  return <img src={src} alt="" className={className} onError={() => setSrc('')} />
+}
+
+/* ── Cards & sections ───────────────────────────────────── */
+
+function SectionTitle({ children, icon, id }) {
+  return (
+    <h2 className="section-title" id={id}>
+      <span className="section-icon">{icon}</span>
+      {children}
+    </h2>
+  )
+}
+
+function GenreChips({ genres, active, onPick }) {
+  return (
+    <div className="chips" role="list" aria-label="Filter genre">
+      {genres.map(g => (
+        <button key={g} role="listitem"
+                className={`chip ${g === active ? 'on' : ''}`}
+                aria-pressed={g === active}
+                onClick={() => onPick(g)}>{g}</button>
+      ))}
     </div>
   )
 }
 
-function HeroImg({ it, className, fallback }) {
-  const [src, setSrc] = useState(it.image_full || it.image || '')
-  useEffect(() => { setSrc(it.image_full || it.image || '') }, [it])
-  if (!src) return null
+function Card({ item, badge, sub, meta, i, onPick, provider }) {
   return (
-    <img src={src} alt="" loading="lazy" className={className}
-         onError={() => {
-           if (fallback && src !== it.image && it.image) setSrc(it.image)
-           else setSrc('')
-         }} />
+    <button className="card" onClick={() => onPick(item)}
+            style={{ animationDelay: `${Math.min(i, 14) * 40}ms` }}>
+      <span className="card-poster">
+        <Poster item={item} provider={provider} />
+        {badge && <span className="ep-badge">{badge}</span>}
+      </span>
+      <span className="card-body">
+        <span className="card-title">{item.title}</span>
+        {sub && <span className="card-sub">{sub}</span>}
+        {meta && <span className="card-meta">{meta}</span>}
+      </span>
+    </button>
+  )
+}
+
+function SkeletonRail({ n, wide }) {
+  return (
+    <div className={`rail${wide ? ' wide' : ''}`} aria-hidden="true">
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className={`card skeleton${wide ? ' rank' : ''}`}
+             style={{ animationDelay: `${Math.min(i, 14) * 40}ms` }}>
+          <div className="poster shimmer" />
+          <span className="skeleton-line" />
+          <span className="skeleton-line short" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function RankCard({ item, i, onPick, provider }) {
+  return (
+    <button className="rank-card" onClick={() => onPick(item)}
+            style={{ animationDelay: `${Math.min(i, 14) * 40}ms` }}>
+      <span className="pop-rank" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
+      <span className="pop-poster">
+        <Poster item={item} provider={provider} />
+        <span className="pop-play">{Ic.play}</span>
+      </span>
+      <span className="pop-body">
+        <span className="pop-title">{item.title}</span>
+        {(item.ep || (item.genre || []).length > 0) && (
+          <span className="pop-meta">
+            {[item.ep ? `${item.ep} episode` : '', (item.genre || []).slice(0, 2).join(' · ')]
+              .filter(Boolean).join(' · ')}
+          </span>
+        )}
+      </span>
+      <span className="pop-go">{Ic.chev}</span>
+    </button>
   )
 }
 
@@ -386,27 +459,64 @@ function Poster({ item, provider }) {
       })
       .catch(() => _noPoster.add(url))
     return () => { alive = false }
-  }, [inView, url, img, provider])
+  }, [inView, url, img])
 
   if (img) {
     return (
-      <div className="poster" ref={ref}>
+      <span className="poster" ref={ref}>
         <img src={img} alt="" loading="lazy" />
-        <span className="poster-overlay">{Ic.play}</span>
-      </div>
+      </span>
     )
   }
   return (
-    <div className="poster placeholder shimmer" ref={ref} aria-hidden="true">
+    <span className="poster placeholder shimmer" ref={ref} aria-hidden="true">
       <span>{item.title.slice(0, 2)}</span>
+    </span>
+  )
+}
+
+/* ── Anime detail ───────────────────────────────────────── */
+
+function ResSelect({ options, value, onChange }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const cur = options.find(o => o.url === value) || options[0]
+
+  useEffect(() => {
+    if (!open) return
+    const out = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    const esc = e => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', out)
+    window.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', out); window.removeEventListener('keydown', esc) }
+  }, [open])
+
+  return (
+    <div className="rselect" ref={ref}>
+      <button type="button" className="rselect-btn" aria-haspopup="listbox" aria-expanded={open}
+              onClick={() => setOpen(o => !o)}>
+        <span>{cur.name}</span>{Ic.chev}
+      </button>
+      {open && (
+        <ul className="rselect-menu" role="listbox">
+          {options.map(o => (
+            <li key={o.url} role="option" aria-selected={o.url === cur.url}
+                className={o.url === cur.url ? 'on' : ''}
+                onClick={() => { onChange(o.url); setOpen(false) }}>
+              {o.name}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
 
-function AnimeView({ anime, onPlay, onDownload, onBack }) {
+function AnimeView({ anime, provider, onPlay, onDownload, onBack }) {
   const [opts, setOpts] = useState(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
+  const [sel, setSel] = useState({})
   const { item, info, episodes } = anime
   const title = info.title || item.title
 
@@ -417,25 +527,50 @@ function AnimeView({ anime, onPlay, onDownload, onBack }) {
     finally { setBusy(false) }
   }
 
-  const pickList = useMemo(
-    () => opts ? [...opts.options].reverse() : [],
-    [opts],
-  )
+  const pickList = useMemo(() => (opts ? [...opts.options].reverse() : []), [opts])
+
+  const groups = useMemo(() => {
+    const map = new Map()
+    pickList.forEach(o => {
+      const m = o.label.match(/^\[(.+?)\]\s*(.*)$/)
+      const res = m ? m[1] : 'Lainnya'
+      const name = m ? m[2] : o.label
+      if (!map.has(res)) map.set(res, [])
+      map.get(res).push({ name, url: o.url, label: o.label })
+    })
+    return [...map.entries()].map(([res, options]) => ({ res, options }))
+  }, [pickList])
+
+  useEffect(() => {
+    if (!opts) return
+    const h = e => { if (e.key === 'Escape') setOpts(null) }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [opts])
 
   return (
-    <div className="anime">
+    <div className="wrap page-pad anime">
       <button className="btn ghost back" onClick={onBack}>{Ic.back} Kembali</button>
 
-      <header className="hero">
-        {info.image ? (
-          <div className="hero-poster"><img src={info.image} alt={title} /></div>
-        ) : (
-          <div className="hero-poster placeholder">{title.slice(0, 2)}</div>
-        )}
-        <div className="hero-body">
+      <header className="detail-hero">
+        <div className="detail-poster">
+          {info.image
+            ? <img src={info.image} alt={title} />
+            : <div className="detail-poster placeholder">{title.slice(0, 2)}</div>}
+        </div>
+        <div className="detail-body">
+          <span className="hero-chip"><i aria-hidden="true" />{provider}</span>
           <h1>{title}</h1>
-          <p className="hero-synopsis">{info.synopsis || '—'}</p>
-          <p className="hero-count dim">{episodes.length} episode</p>
+          <p className="detail-synopsis">{info.synopsis || '—'}</p>
+          <div className="detail-meta">
+            <span className="pill">{episodes.length} episode</span>
+            {(item.genre || []).map(g => <span key={g} className="pill">{g}</span>)}
+          </div>
+          <div className="detail-actions">
+            <button className="btn primary" onClick={() => episodes[0] && pick(episodes[0])}
+                    disabled={!episodes.length}>{Ic.playLg} Putar Episode 1</button>
+            <button className="btn ghost" onClick={onBack}>{Ic.home} Beranda</button>
+          </div>
         </div>
       </header>
 
@@ -443,34 +578,116 @@ function AnimeView({ anime, onPlay, onDownload, onBack }) {
       <div className="eps">
         {episodes.map((ep, i) => (
           <button key={ep.url} className="ep" onClick={() => pick(ep)}>
-            <span className="ep-num">{i + 1}</span>
+            <span className="ep-num">{String(i + 1).padStart(2, '0')}</span>
             <span className="ep-title">{ep.title}</span>
             <span className="ep-go">{Ic.play}</span>
           </button>
         ))}
       </div>
 
-      {busy && <p className="hint"><span className="spinner" />Mengambil link download…</p>}
-      {err && <p className="bad">{err}</p>}
+      {err && <p className="hint center bad">{err}</p>}
+
+      {busy && (
+        <div className="modal"><div className="modal-card">
+          <p className="hint center"><span className="spinner" />Mengambil link download…</p>
+        </div></div>
+      )}
 
       {opts && (
-        <div className="opts">
-          <div className="opts-head">
-            <h3>{opts.ep.title}</h3>
-            <button className="btn ghost" onClick={() => setOpts(null)} aria-label="Tutup">{Ic.x}</button>
-          </div>
-          {!opts.options.length && <p className="hint">Tidak ada server kompatibel.</p>}
-          {pickList.map(o => (
-            <div key={o.url} className="opt">
-              <span>{o.label}</span>
-              <div className="opt-btns">
-                <button className="btn play" onClick={() => onPlay(o.url)}>{Ic.play} Play</button>
-                <button className="btn ghost" onClick={() => onDownload(o, opts.ep)}>{Ic.down} Download</button>
-              </div>
+        <div className="modal" role="dialog" aria-modal="true"
+             onClick={e => { if (e.target === e.currentTarget) setOpts(null) }}>
+          <div className="modal-card">
+            <div className="opts-head">
+              <h3>{opts.ep.title}</h3>
+              <button className="icon-btn" autoFocus onClick={() => setOpts(null)} aria-label="Tutup pilihan server">{Ic.x}</button>
             </div>
-          ))}
+            <div className="modal-body">
+              {!opts.options.length && <p className="hint center">Tidak ada server kompatibel.</p>}
+              {groups.map(g => {
+                const cur = sel[g.res] || g.options[0].url
+                const picked = g.options.find(o => o.url === cur)
+                return (
+                  <div key={g.res} className="opt-group">
+                    <span className="opt-group-title">{g.res}</span>
+                    <ResSelect options={g.options} value={cur}
+                               onChange={v => setSel(s => ({ ...s, [g.res]: v }))} />
+                    <div className="opt-btns">
+                      <button className="btn play" onClick={() => onPlay(cur)}>{Ic.playLg} Play</button>
+                      <button className="btn ghost" onClick={() => onDownload({ url: cur, label: picked.label }, opts.ep)}>{Ic.down} Download</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         </div>
       )}
     </div>
+  )
+}
+
+/* ── Player ─────────────────────────────────────────────── */
+
+function PlayerView({ stream, onBack }) {
+  return (
+    <div className="wrap page-pad player">
+      <button className="btn ghost back" onClick={onBack}>{Ic.back} Kembali</button>
+      <video src={stream} controls autoPlay className="video" />
+      <p className="hint center">Video tidak muncul? Coba resolusi atau server lain.</p>
+    </div>
+  )
+}
+
+/* ── Jobs & footer ──────────────────────────────────────── */
+
+function JobToasts({ jobs }) {
+  return (
+    <div className="job-toasts" role="status" aria-live="polite">
+      {jobs.slice(-3).map(j => (
+        <div key={j.id} className="job-toast">
+          <span className="job-title">{j.title}</span>
+          {j.status === 'running' && (
+            <>
+              <div className="bar"><div style={{ width: pct(j) }} /></div>
+              <span className="dim">{pct(j)}</span>
+            </>
+          )}
+          {j.status === 'failed' && <span className="bad">{j.error}</span>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function pct(j) {
+  return j.total ? `${Math.round((j.done / j.total) * 100)}%` : '…'
+}
+
+function Footer() {
+  return (
+    <footer className="footer">
+      <div className="wrap footer-grid">
+        <div>
+          <button className="logo" aria-label="Indonime">
+            <span className="logo-mark">{Ic.playLg}</span>
+            <span className="logo-text">INDO<span>NIME</span></span>
+          </button>
+          <p className="dim">Streaming anime sub Indo, gratis dan update tiap hari.</p>
+        </div>
+        <nav aria-label="Navigasi footer">
+          <h3>Jelajah</h3>
+          <a href="#latest-title">Rilis Terbaru</a>
+          <a href="#popular-title">Paling Populer</a>
+          <a href="#">Daftar Anime</a>
+        </nav>
+        <nav aria-label="Bantuan">
+          <h3>Bantuan</h3>
+          <a href="#">Cara Nonton</a>
+          <a href="#">Lapor Error</a>
+          <a href="#">Disclaimer</a>
+        </nav>
+      </div>
+      <p className="footer-copy dim">© 2026 Indonime. Dibuat dengan {Ic.star} untuk pecinta anime.</p>
+    </footer>
   )
 }
