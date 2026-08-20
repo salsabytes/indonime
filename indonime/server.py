@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import pkgutil
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -86,6 +87,14 @@ def _providers():
 
 def _load_plugin(name):
   return importlib.import_module(f"indonime.plugins.{name}")
+
+
+def _same_host(url, base):
+  # SSRF guard: client-supplied URLs may only point at the provider's own host.
+  try:
+    return bool(base) and urlparse(url).hostname == urlparse(base).hostname
+  except ValueError:
+    return False
 
 
 class _JobBar:
@@ -185,22 +194,28 @@ class _Handler(BaseHTTPRequestHandler):
     def q(k, d=''):
       return (qs.get(k) or [d])[0]
     try:
+      provider = q('provider', 'otakudesu')
+      if provider not in _providers() or not re.fullmatch(r'[A-Za-z0-9_]+', provider):
+        return self._json(400, {'error': 'unknown provider'})
+      if path in ('/api/info', '/api/poster', '/api/episodes', '/api/downloads'):
+        if not _same_host(q('url'), getattr(_load_plugin(provider), 'BASE', '')):
+          return self._json(400, {'error': 'URL di luar domain provider'})
       if path == '/api/providers':
         return self._json(200, {'providers': _providers()})
       if path == '/api/catalog':
-        return self._json(200, {'catalog': _catalog(_load_plugin(q('provider', 'otakudesu')), q('provider', 'otakudesu'))})
+        return self._json(200, {'catalog': _catalog(_load_plugin(provider), provider)})
       if path == '/api/search':
-        return self._json(200, {'results': _load_plugin(q('provider', 'otakudesu')).search_anime(q('q'))})
+        return self._json(200, {'results': _load_plugin(provider).search_anime(q('q'))})
       if path == '/api/home':
-        return self._json(200, {'items': _load_plugin(q('provider', 'otakudesu')).latest()})
+        return self._json(200, {'items': _load_plugin(provider).latest()})
       if path == '/api/info':
-        return self._json(200, {'info': _load_plugin(q('provider', 'otakudesu')).info(q('url'))})
+        return self._json(200, {'info': _load_plugin(provider).info(q('url'))})
       if path == '/api/poster':
-        return self._json(200, {'image': _poster(q('url'), q('provider', 'otakudesu'))})
+        return self._json(200, {'image': _poster(q('url'), provider)})
       if path == '/api/episodes':
-        return self._json(200, {'episodes': _load_plugin(q('provider', 'otakudesu')).episodes(q('url'))})
+        return self._json(200, {'episodes': _load_plugin(provider).episodes(q('url'))})
       if path == '/api/downloads':
-        dl = _load_plugin(q('provider', 'otakudesu')).downloads(q('url'))
+        dl = _load_plugin(provider).downloads(q('url'))
         options = [{'label': l, 'url': u} for l, u in _compatible_servers(dl)]
         return self._json(200, {'options': options})
       if path == '/api/jobs':
@@ -247,10 +262,12 @@ class _Handler(BaseHTTPRequestHandler):
     if not os.path.isfile(fp):
       return self._json(404, {'error': 'ui/dist belum di-build'})
     ctype, _ = mimetypes.guess_type(fp)
+    if not ctype or '\r' in ctype or '\n' in ctype:
+      ctype = 'application/octet-stream'
     with open(fp, 'rb') as f:
       data = f.read()
     self.send_response(200)
-    self.send_header('Content-Type', ctype or 'application/octet-stream')
+    self.send_header('Content-Type', ctype)
     self.send_header('Content-Length', str(len(data)))
     self.end_headers()
     self.wfile.write(data)
