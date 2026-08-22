@@ -1,0 +1,4 @@
+# Gradle + local run logs
+.gradle/
+.kotlin/
+kotlin-run.log

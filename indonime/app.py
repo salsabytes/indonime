@@ -59,16 +59,20 @@ def _install_webview2():
 
 def main():
   dev = '--dev' in sys.argv
-  if not _webview2_present():
+  headless = '--headless' in sys.argv  # server-only mode, dipakai Kotlin desktop (kotlin mandiri)
+  if not headless and not _webview2_present():
     _install_webview2()
 
   from indonime.server import _STATIC_DIR, start_server
-  port = start_server(port=8756 if dev else 0,
+  port = start_server(port=8756 if (dev or headless) else 0,
                       static_dir=str(_STATIC_DIR))
+  if headless:
+    while True:  # keep daemon-thread server alive; kill to stop
+      import time
+      time.sleep(3600)
+  print(f'Debug: http://127.0.0.1:{port}  (chrome://inspect untuk DevTools)')
   import webview
   url = f'http://127.0.0.1:{port}/'
-  if dev:
-    print(f'Debug: http://127.0.0.1:{port}  (chrome://inspect untuk DevTools)')
   win = webview.create_window('Indonime', url, width=1180, height=800, min_size=(960, 640))
   webview.start(debug=dev)
 
