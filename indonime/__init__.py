@@ -32,7 +32,15 @@ def _fmt_size(n):
     n /= 1024
 
 # Compatible server prefixes
-_COMPATIBLE = {'pdrain', 'pixeldrain', 'mega', 'gdrive'}
+_COMPATIBLE = {'pdrain', 'pixeldrain', 'mega', 'gdrive', 'desustream'}
+
+
+def _is_mega_link(url, name=''):
+  # Otakudesu Mega links now arrive via the desustream resolver
+  # (?id=... → 302 → mega.nz); routing must see both or the link falls
+  # into the pdrain branch and fails on the final mega.nz hop.
+  s = f'{url} {name}'.lower()
+  return 'mega' in s or 'desustream' in s
 _CANCEL = "__cancel__"  # sentinel quality: user cancelled at the quality prompt
 _DL_RETRIES = 2   # auto-retry attempts per failed episode (network blips)
 _DL_WORKERS = 2   # parallel batch downloads — low-end devices, keep it small
@@ -165,7 +173,7 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
     else:
       last_selected_server_name = "replay"
 
-    if 'mega' in server_url.lower() or 'mega' in last_selected_server_name.lower():
+    if _is_mega_link(server_url, last_selected_server_name):
       ok, final_mega_url = _play_mega(server_url, out=out)
       if not ok:
         server_url = None
@@ -315,7 +323,7 @@ def _download_episode(episode_title, episode_url, plugin,
 
   server_name, server_url = options[sel]
 
-  if 'mega' in server_url.lower() or (server_name and 'mega' in server_name.lower()):
+  if _is_mega_link(server_url, server_name):
     dest, size, reason = _download_mega(server_url, safe, downloads_dir, out=bar_out, agg=agg)
   elif 'gdrive' in server_url.lower() or (server_name and 'gdrive' in server_name.lower()):
     dest, size, reason = _download_pdrain(server_url, safe, downloads_dir, out=bar_out,

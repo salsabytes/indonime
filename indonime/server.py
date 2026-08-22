@@ -138,7 +138,7 @@ def _dl_worker(jid, server_url, title):
   out = io.StringIO()
   agg = _JobBar(jid)
   try:
-    if 'mega' in server_url.lower():
+    if _is_mega_link(server_url):
       dest, size, reason = _download_mega(server_url, _safe_name(title), _DL_DIR,
                                           out=out, agg=agg)
     elif 'gdrive' in server_url.lower():
