@@ -36,11 +36,19 @@ _COMPATIBLE = {'pdrain', 'pixeldrain', 'mega', 'gdrive', 'desustream'}
 
 
 def _is_mega_link(url, name=''):
-  # Otakudesu Mega links now arrive via the desustream resolver
-  # (?id=... → 302 → mega.nz); routing must see both or the link falls
-  # into the pdrain branch and fails on the final mega.nz hop.
+  # Otakudesu links arrive via the desustream resolver (?id=... → 302). That
+  # resolver serves BOTH mega.nz and pixeldrain targets, so "desustream" alone
+  # can't classify — follow the redirect once and check the real host.
   s = f'{url} {name}'.lower()
-  return 'mega' in s or 'desustream' in s
+  if 'mega' in s:
+    return True
+  if 'desustream' not in s:
+    return False
+  try:
+    cur = resolve_url(url, timeout=15)
+    return 'mega.nz' in cur or 'mega.co.nz' in cur
+  except Exception:
+    return False
 _CANCEL = "__cancel__"  # sentinel quality: user cancelled at the quality prompt
 _DL_RETRIES = 2   # auto-retry attempts per failed episode (network blips)
 _DL_WORKERS = 2   # parallel batch downloads — low-end devices, keep it small
@@ -128,10 +136,15 @@ def _play_mega(server_url, out=None):
       time.sleep(3)
       return False, None
 
-  with progress("📥 Buffering stream...", out=out) as up:
+  with progress("📥 Downloading stream...", out=out) as up:
     _stall_t0 = time.time()
     _last_bytes = 0
-    while not ready.is_set():
+    # Wait for the FULL file: unlike the browser (range requests), mpv reads
+    # the local temp file sequentially — launching on a partial faststart file
+    # hits EOF when buffered data runs out and playback dies within seconds.
+    # Loop ends when the downloader exits (full file normally, partial on
+    # abort — either way mpv plays what's on disk instead of hanging).
+    while dl_thread.is_alive():
       up(bytes_counter[0])
       done = bytes_counter[0]
       if done != _last_bytes:  # still making progress → reset the stall timer

@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import (
   _compatible_servers, _download_mega, _download_pdrain,
-  _get_catalog, _safe_name,
+  _get_catalog, _is_mega_link, _safe_name,
 )
 from . import plugins
 from .ext import gdrive, megaNZ, pdrain
@@ -337,7 +337,10 @@ class _Handler(BaseHTTPRequestHandler):
       return
     serve_end = min(end, avail)
     length = serve_end - start
-    self.send_response(206 if start > 0 else 200)
+    # 206 whenever the response is not the whole file. A 200 + partial
+    # Content-Length makes the browser treat the truncated body as the full
+    # resource, then moov sample offsets fall past EOF → decode error.
+    self.send_response(206 if (start > 0 or length < file_size) else 200)
     self.send_header('Content-Type', 'video/mp4')
     self.send_header('Content-Length', str(length))
     # Always show total file size so browser knows to keep requesting

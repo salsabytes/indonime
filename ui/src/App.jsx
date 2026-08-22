@@ -531,7 +531,9 @@ function AnimeView({ anime, provider, onPlay, onDownload, onBack }) {
 
   const groups = useMemo(() => {
     const map = new Map()
-    pickList.forEach(o => {
+    // Browser can't decode MKV (Matroska) — hide those from web playback.
+    // The TUI/mpv path still serves them.
+    pickList.filter(o => !/mkv/i.test(o.label)).forEach(o => {
       const m = o.label.match(/^\[(.+?)\]\s*(.*)$/)
       const res = m ? m[1] : 'Lainnya'
       const name = m ? m[2] : o.label
