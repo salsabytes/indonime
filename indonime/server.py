@@ -6,6 +6,7 @@ import mimetypes
 import os
 import pkgutil
 import re
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,12 +14,18 @@ from urllib.parse import parse_qs, urlparse
 
 from . import (
   _compatible_servers, _download_mega, _download_pdrain,
-  _get_catalog, _play_mega, _safe_name,
+  _get_catalog, _safe_name,
 )
 from . import plugins
-from .ext import gdrive, pdrain
+from .ext import gdrive, megaNZ, pdrain
+from .ext.megaNZ import _mega_fid
+from .plugins._base import resolve_url
 
 _DL_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
+# Active mega streams for browser playback: id → {path, stop, thread, file_size, ts}
+_mega_streams = {}
+_mega_stream_seq = [0]
+_mega_stream_lock = threading.Lock()
 # ui/ lives at the repo root (dev) and at the PyInstaller bundle root (exe).
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui", "dist")
 
@@ -173,6 +180,12 @@ class _Handler(BaseHTTPRequestHandler):
 
   def do_GET(self):
     p = urlparse(self.path)
+    if p.path.startswith('/api/mega-stream/'):
+      try:
+        sid = int(p.path.split('/')[-1])
+      except ValueError:
+        return self._json(404, {'error': 'bad stream id'})
+      return self._serve_mega_stream(sid)
     if p.path.startswith('/api/'):
       return self._api(p.path, parse_qs(p.query))
     self._static(p.path)
@@ -230,16 +243,127 @@ class _Handler(BaseHTTPRequestHandler):
   def _play(self, body):
     try:
       url = body.get('server_url', '')
-      if 'mega' in url.lower():
-        ok, _ = _play_mega(url, out=io.StringIO())
-        return self._json(200, {'mpv': True}) if ok else self._json(500, {'error': 'Mega stream gagal'})
-      scraper = gdrive.scrape if 'gdrive' in url.lower() else pdrain.scrape
-      target = scraper(url)
-      if not target:
-        return self._json(500, {'error': 'Stream tidak tersedia (mungkin takedown/gated)'})
-      return self._json(200, {'stream': target})
+      label = body.get('label', '').lower()
+      # Route by label (server name) + URL — mirrors TUI routing logic.
+      if 'mega' in label or 'mega' in url.lower():
+        return self._play_mega_stream(url)
+      if 'gdrive' in label or 'xtwap' in url.lower() or 'gdplayer' in url.lower():
+        target = gdrive.scrape(url)
+        if target:
+          return self._json(200, {'stream': target})
+      else:
+        target = pdrain.scrape(url)
+        if target:
+          return self._json(200, {'stream': target})
+      # Last resort: try mega (intermediary may redirect there)
+      return self._play_mega_stream(url)
     except Exception as e:
       return self._err(e)
+
+  def _play_mega_stream(self, url):
+    """Resolve mega URL → proxy stream for browser playback."""
+    try:
+      curr = resolve_url(url, timeout=15)
+      if not (('mega.nz' in curr or 'mega.co.nz' in curr) and '#' in curr):
+        return self._json(500, {'error': 'Redirect tidak mengarah ke Mega.'})
+    except Exception as e:
+      return self._json(500, {'error': f'Network Error: {e}'})
+    try:
+      mega_url, f_id = _mega_fid(curr)
+      if f_id is None:
+        return self._json(500, {'error': 'Gagal extract file ID MEGA.'})
+      stream = megaNZ.resolve_mega_file_stream(mega_url, f_id)
+      if stream is None:
+        return self._json(500, {'error': 'Gagal resolve stream Mega.'})
+      path, ready, stop, dl_thread, bytes_counter, file_size = stream
+    except Exception as e:
+      return self._json(500, {'error': f'Gagal Streaming: {e}'})
+    # Wait until enough data is on disk for browser to start playing.
+    t0 = time.time()
+    while not ready.is_set():
+      try:
+        if os.path.getsize(path) >= 1024 * 1024:  # 1MB minimum
+          break
+      except OSError:
+        pass
+      if time.time() - t0 > 30:
+        stop.set()
+        return self._json(500, {'error': 'Timeout buffering Mega stream.'})
+      time.sleep(0.3)
+    with _mega_stream_lock:
+      _mega_stream_seq[0] += 1
+      sid = _mega_stream_seq[0]
+      _mega_streams[sid] = {
+        'path': path, 'stop': stop, 'thread': dl_thread,
+        'file_size': file_size, 'ts': time.time(),
+        'bytes_counter': bytes_counter,
+      }
+    return self._json(200, {'stream': f'/api/mega-stream/{sid}'})
+
+  def _serve_mega_stream(self, sid):
+    """Serve the decrypted mega temp file to the browser."""
+    with _mega_stream_lock:
+      info = _mega_streams.get(sid)
+    if info is None:
+      print(f"[mega:serve] sid={sid} not found (expired)", file=sys.stderr)
+      return self._json(404, {'error': 'Stream expired.'})
+    path, stop, dl_thread, file_size, _ = (
+      info['path'], info['stop'], info['thread'], info['file_size'], info['ts'])
+    done = not dl_thread.is_alive()
+    range_header = self.headers.get('Range')
+    if range_header and range_header.startswith('bytes='):
+      parts = range_header[6:].split('-')
+      start = int(parts[0]) if parts[0] else 0
+      end = int(parts[1]) + 1 if parts[1] else file_size
+    else:
+      start = 0
+      end = file_size
+    # Wait for data at the requested offset (max 8s)
+    avail = 0
+    for _ in range(27):
+      try:
+        avail = os.path.getsize(path)
+      except OSError:
+        avail = 0
+      if avail > start:
+        break
+      if done:
+        break
+      time.sleep(0.3)
+    if avail <= start:
+      self.send_response(416)
+      self.send_header('Access-Control-Allow-Origin', '*')
+      self.end_headers()
+      return
+    serve_end = min(end, avail)
+    length = serve_end - start
+    self.send_response(206 if start > 0 else 200)
+    self.send_header('Content-Type', 'video/mp4')
+    self.send_header('Content-Length', str(length))
+    # Always show total file size so browser knows to keep requesting
+    self.send_header('Content-Range', f'bytes {start}-{serve_end - 1}/{file_size}')
+    self.send_header('Accept-Ranges', 'bytes')
+    self.send_header('Access-Control-Allow-Origin', '*')
+    self.end_headers()
+    try:
+      with open(path, 'rb') as f:
+        f.seek(start)
+        sent = 0
+        while sent < length:
+          chunk = f.read(min(256 * 1024, length - sent))
+          if not chunk:
+            if dl_thread.is_alive():
+              time.sleep(0.2)
+              continue
+            break
+          self.wfile.write(chunk)
+          sent += len(chunk)
+    except FileNotFoundError:
+      return
+    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+      pass
+    if done:
+      stop.set()
 
   def _download(self, body):
     try:

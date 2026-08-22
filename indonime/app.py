@@ -64,13 +64,13 @@ def main():
 
   from indonime.server import _STATIC_DIR, start_server
   port = start_server(port=8756 if dev else 0,
-                      static_dir=None if dev else str(_STATIC_DIR))
+                      static_dir=str(_STATIC_DIR))
   import webview
-  url = 'http://127.0.0.1:5173' if dev else f'http://127.0.0.1:{port}/'
+  url = f'http://127.0.0.1:{port}/'
   if dev:
-    print(f'API: http://127.0.0.1:{port}  UI: {url}  (jalankan "npm run dev" di ui/)')
-  webview.create_window('Indonime', url, width=1180, height=800, min_size=(960, 640))
-  webview.start()
+    print(f'Debug: http://127.0.0.1:{port}  (chrome://inspect untuk DevTools)')
+  win = webview.create_window('Indonime', url, width=1180, height=800, min_size=(960, 640))
+  webview.start(debug=dev)
 
 
 if __name__ == '__main__':
