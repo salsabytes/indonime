@@ -230,6 +230,8 @@ class _Handler(BaseHTTPRequestHandler):
       if not items:
         items = _load_plugin('anoboy').latest()
       return self._json(200, {'items': items})
+    if tab == 'genres':
+      return self._json(200, {'genres': discovery.GENRES})
     return self._json(400, {'error': f'unknown tab: {tab}'})
 
   def _api_resolve(self, body):

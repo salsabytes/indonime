@@ -20,17 +20,15 @@ async function post(path, body) {
 }
 
 export const api = {
-  providers: () => get('/api/providers'),
-  catalog: p => get(`/api/catalog?provider=${p}`),
-  home: p => get(`/api/home?provider=${p}`),
-  poster: (u, p) => get(`/api/poster?url=${encodeURIComponent(u)}&provider=${p}`),
-  search: (q, p) => get(`/api/search?q=${encodeURIComponent(q)}&provider=${p}`),
+  // Discovery (AniList): top|season|genre|search|latest|genres
+  discover: (tab, params = '') =>
+    get(`/api/discover?tab=${tab}${params ? '&' + params : ''}`),
+  // Jikan-style id → provider detail URLs (multi-provider). title wajib (resolve by title).
+  resolve: (id, title) => post('/api/resolve', { id, title }),
   info: (u, p) => get(`/api/info?url=${encodeURIComponent(u)}&provider=${p}`),
   episodes: (u, p) => get(`/api/episodes?url=${encodeURIComponent(u)}&provider=${p}`),
   downloads: (u, p) => get(`/api/downloads?url=${encodeURIComponent(u)}&provider=${p}`),
   play: u => post('/api/play', { server_url: u }),
   download: (u, t) => post('/api/download', { server_url: u, title: t }),
   jobs: () => get('/api/jobs'),
-  // Backend has no /api/latest yet — the home endpoint IS the latest posts.
-  latest: p => get(`/api/home?provider=${p}`),
 }

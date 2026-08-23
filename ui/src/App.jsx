@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 
-const _noPoster = new Set()
 const HERO_MS = 6000
 
 const Ic = {
@@ -20,15 +19,17 @@ const Ic = {
 }
 
 export default function App() {
-  const [providers, setProviders] = useState([])
-  const [provider, setProvider] = useState('otakudesu')
+  const [top, setTop] = useState([])
+  const [seasonal, setSeasonal] = useState([])
+  const [latest, setLatest] = useState(null)
+  const [genres, setGenres] = useState(['Semua'])
+  const [genre, setGenre] = useState('Semua')
+  const [genreItems, setGenreItems] = useState(null)
+  const [genreLoading, setGenreLoading] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState(null)
   const [searching, setSearching] = useState(false)
-  const [catalog, setCatalog] = useState(null)
-  const [featured, setFeatured] = useState([])
-  const [latest, setLatest] = useState(null)
-  const [genre, setGenre] = useState('Semua')
+  const [cands, setCands] = useState(null)
   const [view, setView] = useState('home')
   const [anime, setAnime] = useState(null)
   const [stream, setStream] = useState(null)
@@ -38,17 +39,13 @@ export default function App() {
   const searchRef = useRef(null)
 
   useEffect(() => {
-    api.providers().then(r => setProviders(r.providers)).catch(() => {})
-  }, [])
-
-  useEffect(() => {
     let alive = true
-    setCatalog(null); setFeatured([]); setLatest(null)
-    api.catalog(provider).then(r => alive && setCatalog(r.catalog)).catch(() => {})
-    api.home(provider).then(r => alive && setFeatured(r.items)).catch(() => {})
-    api.latest(provider).then(r => alive && setLatest(r.items)).catch(() => {})
+    api.discover('top').then(r => alive && setTop(r.items)).catch(() => {})
+    api.discover('season').then(r => alive && setSeasonal(r.items)).catch(() => {})
+    api.discover('latest').then(r => alive && setLatest(r.items)).catch(() => {})
+    api.discover('genres').then(r => alive && setGenres(['Semua', ...r.genres])).catch(() => {})
     return () => { alive = false }
-  }, [provider])
+  }, [])
 
   useEffect(() => {
     const t = setInterval(() => api.jobs().then(r => setJobs(r.jobs)).catch(() => {}), 1500)
@@ -60,25 +57,55 @@ export default function App() {
     const q = query.trim()
     if (!q) return setResults(null)
     setSearching(true)
-    try { setResults((await api.search(q, provider)).results) }
+    try { setResults((await api.discover('search', 'q=' + encodeURIComponent(q))).results) }
     catch (err) { setError(err.message) }
     finally { setSearching(false) }
   }
 
-  const goHome = () => { setView('home'); setResults(null); setQuery('') }
+  const goHome = () => { setView('home'); setResults(null); setQuery(''); setCands(null); setGenre('Semua') }
+
+  const pickGenre = async g => {
+    setGenre(g); setGenreItems(null)
+    if (g === 'Semua') return
+    setGenreLoading(true)
+    try { setGenreItems((await api.discover('genre', 'genre=' + encodeURIComponent(g))).items) }
+    catch (err) { setError(err.message) }
+    finally { setGenreLoading(false) }
+  }
+
+  const openDetail = (item, prov, url) => {
+    setBusy('Memuat detail...')
+    api.info(url, prov).then(info => api.episodes(url, prov).then(eps => {
+      setAnime({ item, provider: prov, url, info: info.info, episodes: eps.episodes })
+      setView('anime'); setResults(null); setCands(null)
+      window.scrollTo({ top: 0 })
+    })).catch(err => setError(err.message)).finally(() => setBusy(''))
+  }
 
   const pickAnime = async item => {
-    setBusy('Memuat detail...')
+    setBusy('Mencari sumber...')
     try {
-      const [info, eps] = await Promise.all([
-        api.info(item.url, provider), api.episodes(item.url, provider),
-      ])
-      setAnime({ item, info: info.info, episodes: eps.episodes })
-      setView('anime'); setResults(null)
-      window.scrollTo({ top: 0 })
+      if (item.url) {  // shape Rilis Terbaru: url provider langsung
+        const prov = item.url.includes('otakudesu') ? 'otakudesu' : 'anoboy'
+        return openDetail(item, prov, item.url)
+      }
+      const { sources, candidates } = await api.resolve(item.id, item.title)
+      for (const [prov, url] of Object.entries(sources)) {
+        // gap-fill: provider pertama yang sukses; gagal → coba provider berikutnya
+        try {
+          const [info, eps] = await Promise.all([api.info(url, prov), api.episodes(url, prov)])
+          setAnime({ item, provider: prov, url, info: info.info, episodes: eps.episodes })
+          setView('anime'); setResults(null); setCands(null)
+          window.scrollTo({ top: 0 })
+          return
+        } catch { /* coba provider lain */ }
+      }
+      setCands(candidates)  // resolve kosong / semua gagal → pilih manual
     } catch (err) { setError(err.message) }
     finally { setBusy('') }
   }
+
+  const pickCandidate = (prov, url) => openDetail(null, prov, url)
 
   const handlePlay = async url => {
     setBusy('Menghubungi server...')
@@ -92,14 +119,9 @@ export default function App() {
   }
 
   const handleDownload = (opt, ep) => {
-    const base = (anime.info.title || anime.item.title).replace(/\s+Subtitle Indonesia.*$/i, '')
+    const base = (anime.info.title || (anime.item && anime.item.title) || '').replace(/\s+Subtitle Indonesia.*$/i, '')
     api.download(opt.url, `${base} — ${ep.title}`).catch(err => setError(err.message))
   }
-
-  const genres = useMemo(() => {
-    const s = new Set((catalog || []).flatMap(i => i.genre || []))
-    return ['Semua', ...s]
-  }, [catalog])
 
   const onPickResult = item => {
     pickAnime(item)
@@ -108,8 +130,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header providers={providers} provider={provider} setProvider={setProvider}
-              query={query} setQuery={setQuery} onSearch={onSearch} onHome={goHome}
+      <Header query={query} setQuery={setQuery} onSearch={onSearch} onHome={goHome}
               searchRef={searchRef} />
 
       {error && (
@@ -126,19 +147,42 @@ export default function App() {
 
       <main>
         {view === 'home' && (
-          <HomeView featured={featured} catalog={catalog} latest={latest}
+          <HomeView top={top} seasonal={seasonal} latest={latest}
+                    genres={genres} genre={genre} onGenrePick={pickGenre}
+                    genreItems={genreItems} genreLoading={genreLoading}
                     results={results} searching={searching} query={query}
-                    provider={provider} genres={genres} genre={genre} setGenre={setGenre}
                     onPick={onPickResult} />
         )}
         {view === 'anime' && anime && (
-          <AnimeView anime={anime} provider={provider} onPlay={handlePlay}
+          <AnimeView anime={anime} onPlay={handlePlay}
                      onDownload={handleDownload} onBack={goHome} />
         )}
         {view === 'player' && stream && (
           <PlayerView stream={stream} onBack={() => setView('anime')} />
         )}
       </main>
+
+      {cands && (
+        <div className="modal" role="dialog" aria-modal="true"
+             onClick={e => { if (e.target === e.currentTarget) setCands(null) }}>
+          <div className="modal-card">
+            <div className="opts-head">
+              <h3>Pilih judul yang sesuai</h3>
+              <button className="icon-btn" autoFocus onClick={() => setCands(null)} aria-label="Tutup">{Ic.x}</button>
+            </div>
+            <div className="modal-body">
+              {!cands.length && <p className="hint center">Belum ada di provider. Coba judul lain atau nanti lagi.</p>}
+              {cands.map((c, i) => (
+                <button key={i} className="ep" onClick={() => { setCands(null); pickCandidate(c[0], c[2]) }}>
+                  <span className="ep-num">{c[0]}</span>
+                  <span className="ep-title">{c[1]}</span>
+                  <span className="ep-go">{Ic.chev}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {view === 'home' && <Footer />}
       {jobs.length > 0 && <JobToasts jobs={jobs} />}
@@ -148,7 +192,7 @@ export default function App() {
 
 /* ── Header ─────────────────────────────────────────────── */
 
-function Header({ providers, provider, setProvider, query, setQuery, onSearch, onHome, searchRef }) {
+function Header({ query, setQuery, onSearch, onHome, searchRef }) {
   return (
     <header className="topbar">
       <div className="topbar-inner">
@@ -156,13 +200,6 @@ function Header({ providers, provider, setProvider, query, setQuery, onSearch, o
           <span className="logo-mark">{Ic.playLg}</span>
           <span className="logo-text">INDO<span>NIME</span></span>
         </button>
-        <nav className="tabs" role="tablist" aria-label="Pilih sumber">
-          {providers.map(p => (
-            <button key={p} role="tab" aria-selected={p === provider}
-                    className={`tab ${p === provider ? 'on' : ''}`}
-                    onClick={() => setProvider(p)}>{p}</button>
-          ))}
-        </nav>
         <form className="search" onSubmit={onSearch} role="search">
           <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
                  placeholder="Cari anime…" aria-label="Cari anime" />
@@ -176,8 +213,9 @@ function Header({ providers, provider, setProvider, query, setQuery, onSearch, o
 
 /* ── Home ───────────────────────────────────────────────── */
 
-function HomeView({ featured, catalog, latest, results, searching, query, provider, genres, genre, setGenre, onPick }) {
+function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItems, genreLoading, results, searching, query, onPick }) {
   if (searching) return <p className="hint center"><span className="spinner" />Mencari…</p>
+  if (genreLoading) return <p className="hint center"><span className="spinner" />Memuat genre…</p>
 
   if (results) {
     return (
@@ -186,7 +224,20 @@ function HomeView({ featured, catalog, latest, results, searching, query, provid
           <SectionTitle icon={Ic.search}>Hasil untuk “{query}”</SectionTitle>
           {results.length === 0
             ? <p className="hint center">Tidak ada hasil. Coba judul lain.</p>
-            : <div className="grid">{results.map((it, i) => <Card key={it.url} item={it} i={i} provider={provider} onPick={onPick} />)}</div>}
+            : <div className="grid">{results.map((it, i) => <Card key={it.id} item={it} i={i} onPick={onPick} meta={it.score ? `★ ${it.score}` : ''} />)}</div>}
+        </section>
+      </div>
+    )
+  }
+
+  if (genre !== 'Semua' && genreItems) {
+    return (
+      <div className="wrap page-pad">
+        <section>
+          <SectionTitle icon={Ic.flame}>Genre: {genre}</SectionTitle>
+          {genreItems.length === 0
+            ? <p className="hint center">Tidak ada judul untuk genre ini.</p>
+            : <div className="grid">{genreItems.map((it, i) => <Card key={it.id} item={it} i={i} onPick={onPick} meta={`${it.score ? '★ ' + it.score : ''}${it.year ? ' · ' + it.year : ''}`} />)}</div>}
         </section>
       </div>
     )
@@ -194,11 +245,11 @@ function HomeView({ featured, catalog, latest, results, searching, query, provid
 
   return (
     <>
-      {featured.length > 0 && <Hero items={featured} provider={provider} onPick={onPick} />}
+      {top.length > 0 && <Hero items={top} onPick={onPick} />}
 
       <div className="wrap page-pad">
         <section className="stats" aria-label="Statistik">
-          <div><strong>{catalog?.length || '—'}</strong><span>Judul anime</span></div>
+          <div><strong>{top.length || '—'}</strong><span>Judul top</span></div>
           <div><strong>4K</strong><span>Kualitas stream</span></div>
           <div><strong>24/7</strong><span>Update episode</span></div>
         </section>
@@ -206,23 +257,27 @@ function HomeView({ featured, catalog, latest, results, searching, query, provid
         <section aria-labelledby="latest-title">
           <Rail title="Rilis Terbaru" icon={Ic.clock} id="latest-title"
                 toolbar={genres.length > 1
-                  ? <GenreChips genres={genres} active={genre} onPick={setGenre} />
+                  ? <GenreChips genres={genres} active={genre} onPick={onGenrePick} />
                   : null}>
             {!latest
               ? <SkeletonRail n={8} />
-              : latest.filter(i => genre === 'Semua' || (i.genre || []).includes(genre)).map((it, i) => (
-                  <Card key={it.url} item={it} i={i} provider={provider} onPick={onPick} />
-                ))}
+              : latest.map((it, i) => <Card key={it.url} item={it} i={i} onPick={onPick} />)}
+          </Rail>
+        </section>
+
+        <section aria-labelledby="season-title">
+          <Rail title="Musim Ini" icon={Ic.flame} id="season-title">
+            {!seasonal.length
+              ? <SkeletonRail n={8} />
+              : seasonal.map((it, i) => <Card key={it.id} item={it} i={i} onPick={onPick} meta={`${it.score ? '★ ' + it.score : ''}${it.year ? ' · ' + it.year : ''}`} />)}
           </Rail>
         </section>
 
         <section aria-labelledby="popular-title">
           <Rail title="Paling Populer" icon={Ic.flame} id="popular-title" wide>
-            {!catalog
+            {!top.length
               ? <SkeletonRail n={5} wide />
-              : catalog.slice(0, 8).map((it, i) => (
-                  <RankCard key={it.url} item={it} i={i} provider={provider} onPick={onPick} />
-                ))}
+              : top.slice(0, 8).map((it, i) => <RankCard key={it.id} item={it} i={i} onPick={onPick} />)}
           </Rail>
         </section>
       </div>
@@ -273,7 +328,7 @@ function Rail({ title, icon, id, toolbar, children, wide }) {
   )
 }
 
-function Hero({ items, provider, onPick }) {
+function Hero({ items, onPick }) {
   const [idx, setIdx] = useState(0)
   const [paused, setPaused] = useState(false)
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -307,7 +362,7 @@ function Hero({ items, provider, onPick }) {
 
       <div className="hero-content wrap" key={`c${idx}`}>
         <div className="hero-text">
-          <span className="hero-chip"><i aria-hidden="true" />{provider}</span>
+          <span className="hero-chip"><i aria-hidden="true" />{it.score ? `★ ${it.score}` : 'AniList'}</span>
           <h1>{it.title}</h1>
           {it.synopsis && <p className="hero-synopsis">{it.synopsis}</p>}
           <div className="hero-actions">
@@ -374,12 +429,12 @@ function GenreChips({ genres, active, onPick }) {
   )
 }
 
-function Card({ item, badge, sub, meta, i, onPick, provider }) {
+function Card({ item, badge, sub, meta, i, onPick }) {
   return (
     <button className="card" onClick={() => onPick(item)}
             style={{ animationDelay: `${Math.min(i, 14) * 40}ms` }}>
       <span className="card-poster">
-        <Poster item={item} provider={provider} />
+        <Poster item={item} />
         {badge && <span className="ep-badge">{badge}</span>}
       </span>
       <span className="card-body">
@@ -406,21 +461,21 @@ function SkeletonRail({ n, wide }) {
   )
 }
 
-function RankCard({ item, i, onPick, provider }) {
+function RankCard({ item, i, onPick }) {
   return (
     <button className="rank-card" onClick={() => onPick(item)}
             style={{ animationDelay: `${Math.min(i, 14) * 40}ms` }}>
       <span className="pop-rank" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
       <span className="pop-poster">
-        <Poster item={item} provider={provider} />
+        <Poster item={item} />
         <span className="pop-play">{Ic.play}</span>
       </span>
       <span className="pop-body">
         <span className="pop-title">{item.title}</span>
-        {(item.ep || (item.genre || []).length > 0) && (
+        {(item.ep || (item.genres || item.genre || []).length > 0) && (
           <span className="pop-meta">
-            {[item.ep ? `${item.ep} episode` : '', (item.genre || []).slice(0, 2).join(' · ')]
-              .filter(Boolean).join(' · ')}
+            {[item.ep ? `${item.ep} episode` : '', (item.genres || item.genre || []).slice(0, 2).join(' · '),
+              item.score ? `★ ${item.score}` : ''].filter(Boolean).join(' · ')}
           </span>
         )}
       </span>
@@ -443,34 +498,14 @@ function useInView(ref) {
   return inView
 }
 
-function Poster({ item, provider }) {
+function Poster({ item }) {
   const ref = useRef(null)
   const inView = useInView(ref)
-  const [img, setImg] = useState(item.image || '')
-  const url = item.url
-
-  useEffect(() => {
-    if (img || !inView || _noPoster.has(url)) return
-    let alive = true
-    api.poster(url, provider)
-      .then(r => {
-        if (r.image) { if (alive) setImg(r.image) }
-        else _noPoster.add(url)
-      })
-      .catch(() => _noPoster.add(url))
-    return () => { alive = false }
-  }, [inView, url, img])
-
-  if (img) {
-    return (
-      <span className="poster" ref={ref}>
-        <img src={img} alt="" loading="lazy" />
-      </span>
-    )
-  }
   return (
-    <span className="poster placeholder shimmer" ref={ref} aria-hidden="true">
-      <span>{item.title.slice(0, 2)}</span>
+    <span className="poster" ref={ref}>
+      {inView && item.image
+        ? <img src={item.image} alt="" loading="lazy" />
+        : <span className="poster placeholder shimmer" aria-hidden="true"><span>{item.title.slice(0, 2)}</span></span>}
     </span>
   )
 }
@@ -512,17 +547,18 @@ function ResSelect({ options, value, onChange }) {
   )
 }
 
-function AnimeView({ anime, provider, onPlay, onDownload, onBack }) {
+function AnimeView({ anime, onPlay, onDownload, onBack }) {
   const [opts, setOpts] = useState(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
   const [sel, setSel] = useState({})
-  const { item, info, episodes } = anime
+  const item = anime.item || {}
+  const { info, episodes, provider } = anime
   const title = info.title || item.title
 
   const pick = async ep => {
     setBusy(true); setErr(null); setOpts(null)
-    try { setOpts({ ep, options: (await api.downloads(ep.url, '')).options }) }
+    try { setOpts({ ep, options: (await api.downloads(ep.url, provider)).options }) }
     catch (e) { setErr(e.message) }
     finally { setBusy(false) }
   }
@@ -556,17 +592,19 @@ function AnimeView({ anime, provider, onPlay, onDownload, onBack }) {
 
       <header className="detail-hero">
         <div className="detail-poster">
-          {info.image
-            ? <img src={info.image} alt={title} />
+          {(item.image_full || item.image || info.image)
+            ? <img src={item.image_full || item.image || info.image} alt={title} />
             : <div className="detail-poster placeholder">{title.slice(0, 2)}</div>}
         </div>
         <div className="detail-body">
           <span className="hero-chip"><i aria-hidden="true" />{provider}</span>
           <h1>{title}</h1>
-          <p className="detail-synopsis">{info.synopsis || '—'}</p>
+          <p className="detail-synopsis">{item.synopsis || info.synopsis || '—'}</p>
           <div className="detail-meta">
             <span className="pill">{episodes.length} episode</span>
-            {(item.genre || []).map(g => <span key={g} className="pill">{g}</span>)}
+            {(item.genres || item.genre || []).map(g => <span key={g} className="pill">{g}</span>)}
+            {item.score ? <span className="pill">★ {item.score}</span> : null}
+            {item.year ? <span className="pill">{item.year}</span> : null}
           </div>
           <div className="detail-actions">
             <button className="btn primary" onClick={() => episodes[0] && pick(episodes[0])}

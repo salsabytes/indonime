@@ -49,8 +49,21 @@ def _items(media_list, take=24):
 
 
 def _get(variables, take=24):
-  payload = http_post_json(f'{BASE}/', {'query': _QUERY, 'variables': variables})
-  return _items(payload.get('data', {}).get('Page', {}).get('media'), take)
+  # AniList intermittent 5xx/gateway → retry 1x (cache skip empty, jadi
+  # transient error gak nempel; retry di sini nutupin web+RN+TUI sekaligus).
+  import time
+  last = None
+  for attempt in range(2):
+    try:
+      payload = http_post_json(f'{BASE}/', {'query': _QUERY, 'variables': variables})
+      if 'data' not in payload:
+        raise RuntimeError(f'AniList error: {payload.get("errors") or payload}')
+      return _items(payload['data'].get('Page', {}).get('media'), take)
+    except Exception as e:
+      last = e
+      if attempt == 0:
+        time.sleep(0.8)
+  raise last
 
 
 @cached(ttl=86400)
