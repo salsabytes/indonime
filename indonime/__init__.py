@@ -49,6 +49,16 @@ def _is_mega_link(url, name=''):
     return 'mega.nz' in cur or 'mega.co.nz' in cur
   except Exception:
     return False
+
+# Last-resort check (mirror server._play): provider links labeled pdrain/gdrive
+# sometimes 302 to Mega — detect the real redirect target before giving up.
+def _redirects_to_mega(url):
+  try:
+    cur = resolve_url(url, timeout=15)
+    return 'mega.nz' in cur or 'mega.co.nz' in cur
+  except Exception:
+    return False
+
 _CANCEL = "__cancel__"  # sentinel quality: user cancelled at the quality prompt
 _DL_RETRIES = 2   # auto-retry attempts per failed episode (network blips)
 _DL_WORKERS = 2   # parallel batch downloads — low-end devices, keep it small
@@ -201,6 +211,11 @@ def _play_episode(episode_url, plugin, server_url=None, key_source=None, out=Non
         final_target = pdrain.scrape(server_url)
 
     if not final_target:
+      # Last resort (mirror server._play): link may redirect to Mega.
+      if _redirects_to_mega(server_url):
+        ok, final_mega_url = _play_mega(server_url, out=out)
+        if ok:
+          return True, final_mega_url
       print_error("Stream tidak tersedia. Pilih resolusi lain.")
       server_url = None
       continue
@@ -284,6 +299,9 @@ def _download_pdrain(server_url, safe, downloads_dir, out=None, scraper=pdrain.s
     with progress("🌀 Bypassing link...", out=out):
       final_url = scraper(server_url)
     if not final_url:
+      # Last resort (mirror server._play): link may redirect to Mega.
+      if _redirects_to_mega(server_url):
+        return _download_mega(server_url, safe, downloads_dir, out=out, agg=agg)
       print_error("Stream not available.")
       return None, 0, "Stream not available."
 
