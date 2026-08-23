@@ -33,6 +33,7 @@ export default function App() {
   const [view, setView] = useState('home')
   const [anime, setAnime] = useState(null)
   const [stream, setStream] = useState(null)
+  const [streamError, setStreamError] = useState(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState(null)
   const [jobs, setJobs] = useState([])
@@ -108,14 +109,13 @@ export default function App() {
   const pickCandidate = (prov, url) => openDetail(null, prov, url)
 
   const handlePlay = async url => {
-    setBusy('Menghubungi server...')
+    // Langsung pindah ke halaman nonton — loading resolve stream di player.
+    setView('player'); setStream(null); setStreamError(null)
     try {
       const r = await api.play(url)
-      if (r.stream) { setStream(r.stream); setView('player') }
-      else if (r.mpv) setBusy('Diputar di mpv — tutup mpv untuk lanjut')
-      else setError(r.error || 'Gagal memutar')
-    } catch (err) { setError(err.message) }
-    finally { setBusy('') }
+      if (r.stream) setStream(r.stream)
+      else setStreamError(r.error || 'Gagal memutar')
+    } catch (err) { setStreamError(err.message) }
   }
 
   const handleDownload = (opt, ep) => {
@@ -157,8 +157,8 @@ export default function App() {
           <AnimeView anime={anime} onPlay={handlePlay}
                      onDownload={handleDownload} onBack={goHome} />
         )}
-        {view === 'player' && stream && (
-          <PlayerView stream={stream} onBack={() => setView('anime')} />
+        {view === 'player' && (
+          <PlayerView stream={stream} error={streamError} onBack={() => setView('anime')} />
         )}
       </main>
 
@@ -668,11 +668,15 @@ function AnimeView({ anime, onPlay, onDownload, onBack }) {
 
 /* ── Player ─────────────────────────────────────────────── */
 
-function PlayerView({ stream, onBack }) {
+function PlayerView({ stream, error, onBack }) {
   return (
     <div className="wrap page-pad player">
       <button className="btn ghost back" onClick={onBack}>{Ic.back} Kembali</button>
-      <video src={stream} controls autoPlay className="video" />
+      {error
+        ? <p className="hint center bad">{error}</p>
+        : !stream
+          ? <p className="hint center"><span className="spinner" />Menghubungi server…</p>
+          : <video src={stream} controls autoPlay className="video" />}
       <p className="hint center">Video tidak muncul? Coba resolusi atau server lain.</p>
     </div>
   )

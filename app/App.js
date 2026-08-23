@@ -53,6 +53,7 @@ function AppInner() {
   const [view, setView] = useState('home')
   const [anime, setAnime] = useState(null)
   const [stream, setStream] = useState(null)
+  const [streamError, setStreamError] = useState(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState(null)
   const [jobs, setJobs] = useState([])
@@ -145,14 +146,13 @@ function AppInner() {
   const pickCandidate = (prov, url) => openDetail(null, prov, url)
 
   const handlePlay = async url => {
-    setBusy('Menghubungi server...')
+    // Langsung pindah ke halaman nonton — loading resolve stream di player.
+    setView('player'); setStream(null); setStreamError(null); scrollTop()
     try {
       const r = await api.play(url)
-      if (r.stream) { setStream(r.stream); setView('player'); scrollTop() }
-      else if (r.mpv) setBusy('Diputar di mpv — tutup mpv untuk lanjut')
-      else setError(r.error || 'Gagal memutar')
-    } catch (err) { setError(err.message) }
-    finally { setBusy('') }
+      if (r.stream) setStream(r.stream)
+      else setStreamError(r.error || 'Gagal memutar')
+    } catch (err) { setStreamError(err.message) }
   }
 
   const handleDownload = (opt, ep) => {
@@ -182,8 +182,8 @@ function AppInner() {
           <AnimeView anime={anime} onPlay={handlePlay}
                      onDownload={handleDownload} onBack={goHome} />
         )}
-        {view === 'player' && stream && (
-          <PlayerView key={stream} stream={stream} onBack={() => setView('anime')} />
+        {view === 'player' && (
+          <PlayerView stream={stream} error={streamError} onBack={() => setView('anime')} />
         )}
         {view === 'home' && <Footer onJump={label => scrollRef.current?.scrollTo({ y: sectionY[label] || 0, animated: true })} />}
       </ScrollView>
@@ -861,15 +861,29 @@ function AnimeView({ anime, onPlay, onDownload, onBack }) {
 
 /* ── Player ─────────────────────────────────────────────── */
 
-function PlayerView({ stream, onBack }) {
-  const player = useVideoPlayer(stream, p => { p.loop = false; p.play() })
+function PlayerView({ stream, error, onBack }) {
   return (
     <View style={[s.wrap, s.pagePad, s.player]}>
       <Btn ghost style={s.back} onPress={onBack} icon={<Ic.back color={C.fg} size={18} />}>Kembali</Btn>
-      <VideoView player={player} style={s.video} contentFit="contain" nativeControls />
+      {error
+        ? <Text style={[s.hint, s.hintCenter, { textAlign: 'center' }]}>{error}</Text>
+        : !stream
+          ? (
+            <View style={[s.hintCenter, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 80 }]}>
+              <Spinner />
+              <Text style={s.hint}>Menghubungi server…</Text>
+            </View>
+          )
+          : <VideoCore stream={stream} />}
       <Text style={[s.hint, { textAlign: 'center', paddingVertical: 40 }]}>Video tidak muncul? Coba resolusi atau server lain.</Text>
     </View>
   )
+}
+
+// VideoWrapper terpisah biar useVideoPlayer (hook) gak pernah conditional.
+function VideoCore({ stream }) {
+  const player = useVideoPlayer(stream, p => { p.loop = false; p.play() })
+  return <VideoView player={player} style={s.video} contentFit="contain" nativeControls />
 }
 
 /* ── Jobs & footer ──────────────────────────────────────── */
