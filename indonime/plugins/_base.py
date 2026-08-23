@@ -32,7 +32,7 @@ _ALLOWED_HOST_RE = (
   # video.gdplayer.to. Anchored so evil-gdplayer.to still fails.
   r'^(?:https?://(?:'
   r'(?:[\w-]+\.)*otakudesu\.blog|(?:[\w-]+\.)*anoboy7\.com|'
-  r'(?:[\w-]+\.)*api\.jikan\.moe|'
+  r'graphql\.anilist\.co|'
   r'(?:[\w-]+\.)*pixeldrain\.com|(?:[\w-]+\.)*mega\.co\.nz|'
   r'(?:[\w-]+\.)*mega\.co\.nz|(?:[\w-]+\.)*mega\.nz|(?:[\w-]+\.)*dl\.xtwap\.top|'
   r'(?:[\w-]+\.)*gdplayer\.to|link\.desustream\.com'
