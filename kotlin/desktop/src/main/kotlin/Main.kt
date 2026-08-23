@@ -42,6 +42,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.imageio.ImageIO
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -88,8 +93,8 @@ var serverProc: Process? = null
 
 fun main() {
     Thread.setDefaultUncaughtExceptionHandler { t, e -> println("KOTLIN-CRASH $t: $e"); e.printStackTrace() }
-    // ponytail: semua jalur GPU (DIRECT3D/OPENGL) crash senyap di VM ini; SOFTWARE satu-satunya stabil -> entengi efeknya, bukan renderernya
-    System.setProperty("skiko.renderApi", "SOFTWARE")
+    // ponytail: SEMUA jalur GPU crash senyap di VM; di hardware asli DIRECT3D jalan & jauh lebih mulus -> fallback SOFTWARE kalau crash
+    System.setProperty("skiko.renderApi", "DIRECT3D")
     application {
     Window(onCloseRequest = { serverProc?.destroyForcibly(); exitApplication() }, title = "Indonime", state = rememberWindowState(width = 1080.dp, height = 720.dp)) {
         MaterialTheme(colorScheme = darkColorScheme(background = Bg, onBackground = Fg, surface = Card, onSurface = Fg, primary = Primary, secondary = Primary2, error = Accent), typography = Typography(bodyLarge = TextStyle(fontFamily = BodyFont))) {
@@ -116,7 +121,7 @@ fun main() {
     LaunchedEffect(phase) { if (phase != "ready") return@LaunchedEffect; try { val r: JsonObject = http.get("$SERVER/api/providers").body(); providers = r["providers"]?.toString()?.removeSurrounding("[", "]")?.split(",")?.map { it.trim().removeSurrounding("\"") } ?: listOf("otakudesu") } catch (_: Exception) {} }
     LaunchedEffect(provider, phase) { if (phase != "ready") return@LaunchedEffect; results = null; view = View.Home; try { catalog = (http.get("$SERVER/api/catalog?provider=$provider").body() as CatResp).catalog } catch (_: Exception) {}; try { featured = (http.get("$SERVER/api/home?provider=$provider").body() as HomeResp).items } catch (_: Exception) {}; try { latest = (http.get("$SERVER/api/home?provider=$provider").body() as HomeResp).items } catch (_: Exception) {} }
 
-    fun doSearch() { if (query.isBlank()) { results = null; return }; scope.launch { busy = "Mencari…"; try { results = (http.get("$SERVER/api/search?q=$query&provider=$provider").body() as SearchResp).results } catch (e: Exception) { error = e.message }; busy = "" } }
+    fun doSearch() { if (query.isBlank()) { results = null; return }; scope.launch { busy = "Mencari…"; try { results = (http.get("$SERVER/api/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&provider=$provider").body() as SearchResp).results } catch (e: Exception) { error = e.message }; busy = "" } }
     fun pickAnime(item: CI) { scope.launch { busy = "Memuat…"; try { anime = item to (http.get("$SERVER/api/episodes?url=${item.url}&provider=$provider").body() as EpsResp).episodes; view = View.Detail; results = null } catch (e: Exception) { error = e.message }; busy = "" } }
     fun pickEp(ep: EP) { scope.launch { busy = "Mengambil link…"; try { opts = ep to (http.get("$SERVER/api/downloads?url=${java.net.URLEncoder.encode(ep.url, "UTF-8")}&provider=$provider").body() as OResp).options; sel = emptyMap() } catch (e: Exception) { error = e.message }; busy = "" } }
     fun playServer(o: Opt) { scope.launch { busy = "Menghubungi…"; try { val r: PlayResp = http.post("$SERVER/api/play") { contentType(ContentType.Application.Json); setBody(mapOf("server_url" to o.url, "label" to o.label)) }.body(); if (r.stream != null) { stream = r.stream; opts = null; view = View.Player } else error = r.error ?: "Gagal" } catch (e: Exception) { error = e.message }; busy = "" } }
@@ -182,7 +187,7 @@ fun main() {
             Spacer(Modifier.width(16.dp))
             Surface(shape = PillR, color = Card, border = BorderStroke(1.dp, Border)) { Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { providers.forEach { p -> val on = p == provider; Box(Modifier.clip(PillR).clickable { onProv(p) }.then(if (on) Modifier.background(Brush.linearGradient(listOf(Primary, Color(0xFF9D4EDD)))).shadow(12.dp, PillR) else Modifier).height(30.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) { Text(p, color = if (on) Color.White else FgDim, fontSize = 13.sp, fontWeight = FontWeight.Medium) } } } }
             Spacer(Modifier.weight(1f))
-            Surface(shape = PillR, color = Card, border = BorderStroke(1.dp, Border), modifier = Modifier.width(360.dp)) { Row(Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) { BasicTextField(value = query, onValueChange = onQ, textStyle = TextStyle(color = Fg, fontSize = 14.sp), cursorBrush = SolidColor(Primary), singleLine = true, modifier = Modifier.weight(1f)); Spacer(Modifier.width(4.dp)); Box(Modifier.size(32.dp).clip(CircleShape).background(Card2).clickable { onSearch() }, contentAlignment = Alignment.Center) { Canvas(Modifier.size(18.dp)) { drawCircle(Color.Transparent); drawCircle(FgDim, 5.5f, style = Stroke(1.5f), center = Offset(size.width * 0.46f, size.height * 0.46f)); drawLine(FgDim, Offset(size.width * 0.68f, size.height * 0.68f), Offset(size.width * 0.9f, size.height * 0.9f), 1.5f, cap = StrokeCap.Round) } } } }
+            Surface(shape = PillR, color = Card, border = BorderStroke(1.dp, Border), modifier = Modifier.width(360.dp)) { Row(Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) { BasicTextField(value = query, onValueChange = onQ, textStyle = TextStyle(color = Fg, fontSize = 14.sp), cursorBrush = SolidColor(Primary), singleLine = true, modifier = Modifier.weight(1f).onPreviewKeyEvent { e: androidx.compose.ui.input.key.KeyEvent -> if (e.type == KeyEventType.KeyUp && e.key == Key.Enter) { onSearch(); true } else false }); Spacer(Modifier.width(4.dp)); Box(Modifier.size(32.dp).clip(CircleShape).background(Card2).clickable { onSearch() }, contentAlignment = Alignment.Center) { Canvas(Modifier.size(18.dp)) { drawCircle(Color.Transparent); drawCircle(FgDim, 5.5f, style = Stroke(1.5f), center = Offset(size.width * 0.46f, size.height * 0.46f)); drawLine(FgDim, Offset(size.width * 0.68f, size.height * 0.68f), Offset(size.width * 0.9f, size.height * 0.9f), 1.5f, cap = StrokeCap.Round) } } } }
         }
     }
 }
