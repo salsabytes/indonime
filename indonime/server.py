@@ -1,4 +1,6 @@
 # HTTP JSON API + static hosting for the React GUI. Stdlib only.
+import hashlib
+import glob
 import importlib
 import io
 import json
@@ -22,6 +24,10 @@ from .ext.megaNZ import _mega_fid
 from .plugins._base import resolve_url
 
 _DL_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
+# Embedded player (Kotlin/JavaFX) cache: file penuh di-download dulu karena MP4
+# provider non-faststart (moov di akhir) — player streaming (range) gak bisa start,
+# tapi file lokal bisa. nama = sha1(server_url) -> dedupe + resume.
+_PLAY_CACHE = os.path.join(os.path.expanduser("~"), ".indonime", "play")
 # Active mega streams for browser playback: id → {path, stop, thread, file_size, ts}
 _mega_streams = {}
 _mega_stream_seq = [0]
@@ -158,6 +164,36 @@ def _dl_worker(jid, server_url, title):
       j["dest"], j["size"] = dest, size
 
 
+def _play_cache_worker(jid, server_url, label):
+  # Embedded player (JavaFX) butuh file utuh — mirror _play routing, tapi simpan ke
+  # cache play (~/.indonime/play) biar gak nyampah di Downloads. Kalau file cache
+  # udah ada (sha1 url) langsung done tanpa download ulang.
+  h = hashlib.sha1(server_url.encode()).hexdigest()[:16]
+  out = io.StringIO()
+  agg = _JobBar(jid)
+  try:
+    import glob
+    existing = glob.glob(os.path.join(_PLAY_CACHE, h + ".*"))
+    if existing:
+      dest, size, reason = existing[0], os.path.getsize(existing[0]), None
+    elif 'mega' in label.lower() or _is_mega_link(server_url):
+      dest, size, reason = _download_mega(server_url, h, _PLAY_CACHE, out=out, agg=agg)
+    elif 'gdrive' in label.lower() or 'xtwap' in server_url.lower() or 'gdplayer' in server_url.lower():
+      dest, size, reason = _download_pdrain(server_url, h, _PLAY_CACHE,
+                                            out=out, agg=agg, scraper=gdrive.scrape)
+    else:
+      dest, size, reason = _download_pdrain(server_url, h, _PLAY_CACHE, out=out, agg=agg)
+  except Exception as e:
+    dest, size, reason = None, 0, str(e)
+  with _jobs_lock:
+    j = _jobs[jid]
+    j["status"] = "failed" if reason else "done"
+    if reason:
+      j["error"] = reason
+    else:
+      j["dest"], j["size"] = dest, size
+
+
 class _Handler(BaseHTTPRequestHandler):
   def log_message(self, *a):
     pass
@@ -194,6 +230,8 @@ class _Handler(BaseHTTPRequestHandler):
     p = urlparse(self.path)
     if p.path == '/api/play':
       return self._play(self._body())
+    if p.path == '/api/play-cache':
+      return self._play_cache(self._body())
     if p.path == '/api/download':
       return self._download(self._body())
     self._json(404, {'error': 'not found'})
@@ -367,6 +405,23 @@ class _Handler(BaseHTTPRequestHandler):
       pass
     if done:
       stop.set()
+
+  def _play_cache(self, body):
+    # Embedded player (Kotlin/JavaFX): download file utuh ke cache play (~/.indonime/play),
+    # balikin job_id buat polling progress. dest jadi file:// URI di client.
+    try:
+      url = body.get('server_url', '')
+      label = body.get('label', '')
+      os.makedirs(_PLAY_CACHE, exist_ok=True)
+      with _jobs_lock:
+        _job_seq[0] += 1
+        jid = _job_seq[0]
+        _jobs[jid] = {'id': jid, 'title': 'play-cache', 'status': 'running',
+                      'done': 0, 'total': 0, 'dest': None, 'size': 0, 'error': None}
+      threading.Thread(target=_play_cache_worker, args=(jid, url, label), daemon=True).start()
+      return self._json(200, {'job_id': jid})
+    except Exception as e:
+      return self._err(e)
 
   def _download(self, body):
     try:

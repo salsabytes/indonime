@@ -52,6 +52,14 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import androidx.compose.ui.awt.SwingPanel
+import javafx.application.Platform
+import javafx.embed.swing.JFXPanel
+import javafx.scene.Scene
+import javafx.scene.layout.StackPane
+import javafx.scene.media.Media
+import javafx.scene.media.MediaPlayer
+import javafx.scene.media.MediaView
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -84,14 +92,13 @@ val BodyFont = FontFamily(Font("fonts/rubik-400.ttf", FontWeight.Normal), Font("
 @Serializable data class SearchResp(val results: List<CI>)
 @Serializable data class EpsResp(val episodes: List<EP>)
 @Serializable data class EP(val title: String, val url: String)
-@Serializable data class PlayResp(val stream: String? = null, val mpv: String? = null, val error: String? = null)
 @Serializable data class Opt(val label: String, val url: String)
 @Serializable data class OResp(val options: List<Opt>)
+@Serializable data class JobResp(val job_id: Int)
+@Serializable data class Job(val id: Int, val title: String, val status: String, val done: Long = 0, val total: Long = 0, val dest: String? = null, val size: Long = 0, val error: String? = null)
+@Serializable data class JobsResp(val jobs: List<Job>)
 val OPT_RES = Regex("^\\[(.+?)\\]\\s*(.*)$")
 fun optName(label: String) = OPT_RES.find(label)?.groupValues?.getOrNull(2)?.takeIf { it.isNotBlank() } ?: label
-// mega streams di-return server sebagai path relatif (/api/mega-stream/N); browser resolve
-// terhadap origin, mpv/URI butuh URL absolut.
-fun absStream(url: String) = if (url.startsWith("/")) SERVER + url else url
 // ponytail: mirror player.py — LOCALAPPDATA (hasil auto-install TUI), scoop, lalu PATH.
 // upgrade: bundle mpv via jpackage kalau mau desktop benar-benar mandiri.
 fun findMpv(): String? {
@@ -144,7 +151,30 @@ fun main() {
     fun doSearch() { if (query.isBlank()) { results = null; return }; scope.launch { busy = "Mencari…"; try { results = (http.get("$SERVER/api/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&provider=$provider").body() as SearchResp).results } catch (e: Exception) { error = e.message }; busy = "" } }
     fun pickAnime(item: CI) { scope.launch { busy = "Memuat…"; try { anime = item to (http.get("$SERVER/api/episodes?url=${item.url}&provider=$provider").body() as EpsResp).episodes; view = View.Detail; results = null } catch (e: Exception) { error = e.message }; busy = "" } }
     fun pickEp(ep: EP) { scope.launch { busy = "Mengambil link…"; try { opts = ep to (http.get("$SERVER/api/downloads?url=${java.net.URLEncoder.encode(ep.url, "UTF-8")}&provider=$provider").body() as OResp).options; sel = emptyMap() } catch (e: Exception) { error = e.message }; busy = "" } }
-    fun playServer(o: Opt) { scope.launch { busy = "Menghubungi…"; try { val r: PlayResp = http.post("$SERVER/api/play") { contentType(ContentType.Application.Json); setBody(mapOf("server_url" to o.url, "label" to o.label)) }.body(); if (r.stream != null) { stream = absStream(r.stream); opts = null; view = View.Player } else error = r.error ?: "Gagal" } catch (e: Exception) { error = e.message }; busy = "" } }
+    fun playServer(o: Opt) { scope.launch {
+        // Embedded (JavaFX) butuh file utuh: server download ke cache play dulu, kita poll progress.
+        busy = "Menyiapkan video…"
+        try {
+            val jr: JobResp = http.post("$SERVER/api/play-cache") { contentType(ContentType.Application.Json); setBody(mapOf("server_url" to o.url, "label" to o.label)) }.body()
+            var j: Job? = null
+            while (true) {
+                delay(700)
+                j = (http.get("$SERVER/api/jobs").body() as JobsResp).jobs.firstOrNull { it.id == jr.job_id } ?: break
+                if (j.total > 0) busy = "Menyiapkan video… ${j.done * 100 / j.total}%"
+                when (j.status) {
+                    "done" -> break
+                    "failed" -> { error = j.error ?: "Gagal menyiapkan video"; busy = ""; return@launch }
+                    else -> {}
+                }
+            }
+            val dest = j?.dest
+            if (dest != null && j?.status == "done") {
+                stream = java.io.File(dest).toURI().toString()
+                opts = null; view = View.Player
+            } else if (error == null) error = "Gagal menyiapkan video"
+        } catch (e: Exception) { error = e.message }
+        busy = ""
+    } }
     fun dlServer(o: Opt, ep: EP) { scope.launch { try { http.post("$SERVER/api/download") { contentType(ContentType.Application.Json); setBody(mapOf("server_url" to o.url, "title" to ep.title)) } } catch (e: Exception) { error = e.message } } }
 
     when (phase) { "boot","loading" -> BootScreen(); else ->
@@ -332,8 +362,9 @@ fun Modifier.shd(radius: Dp, shape: Shape) = if (lowEnd) this else this.shadow(r
     // upgrade: kalau butuh multi-aksi per grup tanpa scroll, split jadi multi-step wizard.
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val groups = remember(options) {
+            // parity React (App.jsx): browser/embedded player gak bisa decode MKV — hidden dari daftar; TUI/mpv tetep bisa.
             val m = LinkedHashMap<String, MutableList<Opt>>()
-            options.forEach { o -> val res = OPT_RES.find(o.label)?.groupValues?.getOrNull(1) ?: "Lainnya"; m.getOrPut(res) { mutableListOf() }.add(o) }
+            options.filter { !it.label.contains("mkv", ignoreCase = true) }.forEach { o -> val res = OPT_RES.find(o.label)?.groupValues?.getOrNull(1) ?: "Lainnya"; m.getOrPut(res) { mutableListOf() }.add(o) }
             m.map { it.key to it.value }
         }
         Box(Modifier.width(560.dp).clip(CardR).background(Card).border(1.dp, Border, CardR).shd(30.dp, CardR).padding(20.dp)) {
@@ -363,20 +394,53 @@ fun Modifier.shd(radius: Dp, shape: Shape) = if (lowEnd) this else this.shadow(r
     }
 }
 
+// ── Embedded player (parity React <video>, via JavaFX MediaPlayer in SwingPanel) ──
+// ponytail: JavaFX media decode mp4/h264 via Windows Media Foundation; MKV gak didukung
+// browser juga (React filter mkv), jadi MKV difilter & fallback tetep mpv. Upgrade:
+// ganti ke libmpv render-API kalau butuh semua format embedded.
+@Composable fun EmbeddedVideo(url: String, onState: (String) -> Unit) {
+    val state by rememberUpdatedState(onState)
+    val playerRef = remember { arrayOfNulls<MediaPlayer>(1) }
+    DisposableEffect(url) { onDispose { Platform.runLater { playerRef[0]?.dispose() } } }
+    SwingPanel(modifier = Modifier.fillMaxSize(), factory = {
+        val fxPanel = JFXPanel()
+        Platform.runLater {
+            try {
+                val media = Media(url)
+                if (media.error != null) { state("error"); return@runLater }
+                val mp = MediaPlayer(media); playerRef[0] = mp
+                mp.isAutoPlay = true
+                mp.setOnError { state("error") }
+                mp.setOnReady {
+                    mp.play()
+                    state("ready")
+                }
+                val view = MediaView(mp)
+                view.isPreserveRatio = true
+                val scene = Scene(StackPane(view))
+                fxPanel.scene = scene
+                // React <video> full-width: ikutin ukuran panel via scene (JFXPanel gak punya fx property)
+                view.fitWidthProperty().bind(scene.widthProperty())
+                view.fitHeightProperty().bind(scene.heightProperty())
+            } catch (_: Exception) { state("error") }
+        }
+        fxPanel
+    })
+}
+
 @Composable fun PlayerScreen(streamUrl: String, onBack: () -> Unit) {
-    // parity React <video autoPlay>: langsung putar pas layar kebuka, tanpa klik ekstra.
-    var launched by remember { mutableStateOf(false) }
-    LaunchedEffect(streamUrl) {
-        try {
-            val mpv = findMpv()
-            if (mpv != null) Runtime.getRuntime().exec(arrayOf(mpv, "--force-window=yes", "--title=Indonime Player", streamUrl))
-            else Desktop.getDesktop().browse(URI(streamUrl))
-            launched = true
-        } catch (_: Exception) {}
-    }
+    var state by remember(streamUrl) { mutableStateOf("loading") }  // loading | ready | error
     Column(Modifier.fillMaxSize().widthIn(max = 1200.dp).padding(20.dp)) {
         GhostBtn("Kembali", icon = { BackIco() }) { onBack() }; Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth().weight(1f).clip(CardR).background(Card), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) { Canvas(Modifier.fillMaxSize()) { drawPath(Path().apply { moveTo(3f, 1f); lineTo(3f, 15f); lineTo(15f, 8f); close() }, Primary, style = Fill) } }; Spacer(Modifier.height(12.dp)); Text("Video Player", color = FgDim, fontSize = 16.sp); Spacer(Modifier.height(8.dp)); Text(streamUrl, color = Muted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 40.dp)); Spacer(Modifier.height(16.dp)); if (!launched) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = Primary) else Text("Video diputar di pemutar eksternal — tutup pemutar untuk kembali.", color = Green, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 30.dp)); Spacer(Modifier.height(14.dp)); PrimaryBtn("Putar Lagi di MPV", icon = { PlayIco(20.dp) }) { try { val mpv = findMpv(); if (mpv != null) Runtime.getRuntime().exec(arrayOf(mpv, "--force-window=yes", "--title=Indonime Player", streamUrl)) else Desktop.getDesktop().browse(URI(streamUrl)) } catch (_: Exception) {} } } }
+        Box(Modifier.fillMaxWidth().weight(1f).clip(CardR).background(Card)) {
+            EmbeddedVideo(streamUrl) { state = it }
+            if (state != "ready") Box(Modifier.fillMaxSize().background(Card), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (state == "loading") { CircularProgressIndicator(Modifier.size(30.dp), strokeWidth = 3.dp, color = Primary); Spacer(Modifier.height(12.dp)); Text("Memuat video…", color = FgDim, fontSize = 13.sp) }
+                    else { Text("Gagal memuat video.", color = Accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(12.dp)); PrimaryBtn("Buka di MPV", icon = { PlayIco(18.dp) }) { try { val mpv = findMpv(); if (mpv != null) Runtime.getRuntime().exec(arrayOf(mpv, "--force-window=yes", "--title=Indonime Player", streamUrl)) else Desktop.getDesktop().browse(URI(streamUrl)) } catch (_: Exception) {} } }
+                }
+            }
+        }
         Text("Video tidak muncul? Coba resolusi atau server lain.", color = FgDim, fontSize = 12.sp, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center)
     }
 }

@@ -23,6 +23,12 @@ dependencies {
     implementation("io.ktor:ktor-client-content-negotiation:3.0.3")
     implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    // Embedded video player (JFXPanel inside SwingPanel) — MP4 only; MKV stays mpv-side.
+    // JavaFX modules butuh classifier platform eksplisit (transitive placeholder kosong).
+    implementation("org.openjfx:javafx-base:21.0.5:win")
+    implementation("org.openjfx:javafx-graphics:21.0.5:win")
+    implementation("org.openjfx:javafx-media:21.0.5:win")
+    implementation("org.openjfx:javafx-swing:21.0.5:win")
 }
 
 compose.desktop {
