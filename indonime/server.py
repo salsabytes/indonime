@@ -16,9 +16,11 @@ from urllib.parse import parse_qs, urlparse
 
 from . import (
   _compatible_servers, _download_mega, _download_pdrain,
-  _get_catalog, _is_mega_link, _safe_name,
+  _is_mega_link, _safe_name,
 )
+from . import discovery
 from . import plugins
+from .resolve import candidates as _resolve_candidates, resolve as _resolve_urls
 from .ext import gdrive, megaNZ, pdrain
 from .ext.megaNZ import _mega_fid
 from .plugins._base import resolve_url
@@ -38,61 +40,6 @@ _STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui", "di
 _jobs = {}  # job_id → status dict (frontend polls /api/jobs)
 _jobs_lock = threading.Lock()
 _job_seq = [0]
-
-# Poster cache: detail-URL → cover URL. Persistent on disk so the catalog
-# (which has no images) fills in once and is instant on every later visit.
-_COVER_FILE = os.path.join(os.path.expanduser("~"), ".indonime", "covers.json")
-_cover_lock = threading.Lock()
-_covers = {}
-try:
-  with open(_COVER_FILE) as f:
-    _covers = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-  pass
-# Throttle poster scraping — don't hammer the provider with parallel fetches.
-_poster_sem = threading.Semaphore(4)
-
-# Catalog disk cache: 1856-item scrape takes ~10s — serve the last 24h copy
-# instantly and refresh in the background only when stale.
-_CATALOG_TTL = 24 * 3600
-_catalog_lock = threading.Lock()
-
-
-def _catalog_path(provider):
-  if '/' in provider or '\\' in provider or provider in ('.', '..'):
-    raise ValueError(f'bad provider: {provider}')
-  return os.path.join(os.path.expanduser("~"), ".indonime", f"catalog-{provider}.json")
-
-
-def _write_catalog(provider, items):
-  with _catalog_lock:
-    tmp = _catalog_path(provider) + ".tmp"
-    os.makedirs(os.path.dirname(tmp), exist_ok=True)
-    with open(tmp, "w") as f:
-      json.dump({'at': time.time(), 'items': items}, f)
-    os.replace(tmp, _catalog_path(provider))
-
-
-def _catalog(plugin, provider):
-  try:
-    with open(_catalog_path(provider)) as f:
-      data = json.load(f)
-    fresh = time.time() - data.get('at', 0) < _CATALOG_TTL
-    if not fresh:
-      threading.Thread(target=lambda: _write_catalog(provider, _get_catalog(plugin)),
-                       daemon=True).start()
-    return data['items']
-  except (FileNotFoundError, json.JSONDecodeError, KeyError):
-    pass
-  items = _get_catalog(plugin)  # first run: one slow fetch, then cached forever
-  _write_catalog(provider, items)
-  return items
-
-
-def _save_covers():
-  os.makedirs(os.path.dirname(_COVER_FILE), exist_ok=True)
-  with open(_COVER_FILE, "w") as f:
-    json.dump(_covers, f)
 
 
 def _providers():
@@ -124,20 +71,6 @@ class _JobBar:
   def add_done(self, n):
     with _jobs_lock:
       _jobs[self.jid]["done"] += n
-
-
-def _poster(url, provider):
-  # Detail-URL → cover URL. Cached in memory (plugin.info) + on disk.
-  with _cover_lock:
-    cached = _covers.get(url)
-  if cached is not None:
-    return cached
-  with _poster_sem:  # ponytail: global 4-way throttle, fine for one user
-    image = _load_plugin(provider).info(url).get('image', '')
-  with _cover_lock:
-    _covers[url] = image
-    _save_covers()
-  return image
 
 
 def _dl_worker(jid, server_url, title):
@@ -237,6 +170,8 @@ class _Handler(BaseHTTPRequestHandler):
       return self._play_cache(self._body())
     if p.path == '/api/download':
       return self._download(self._body())
+    if p.path == '/api/resolve':
+      return self._api_resolve(self._body())
     self._json(404, {'error': 'not found'})
 
   def do_OPTIONS(self):
@@ -253,21 +188,13 @@ class _Handler(BaseHTTPRequestHandler):
       provider = q('provider', 'otakudesu')
       if provider not in _providers() or not re.fullmatch(r'[A-Za-z0-9_]+', provider):
         return self._json(400, {'error': 'unknown provider'})
-      if path in ('/api/info', '/api/poster', '/api/episodes', '/api/downloads'):
+      if path in ('/api/info', '/api/episodes', '/api/downloads'):
         if not _same_host(q('url'), getattr(_load_plugin(provider), 'BASE', '')):
           return self._json(400, {'error': 'URL di luar domain provider'})
-      if path == '/api/providers':
-        return self._json(200, {'providers': _providers()})
-      if path == '/api/catalog':
-        return self._json(200, {'catalog': _catalog(_load_plugin(provider), provider)})
-      if path == '/api/search':
-        return self._json(200, {'results': _load_plugin(provider).search_anime(q('q'))})
-      if path == '/api/home':
-        return self._json(200, {'items': _load_plugin(provider).latest()})
+      if path == '/api/discover':
+        return self._discover(q)
       if path == '/api/info':
         return self._json(200, {'info': _load_plugin(provider).info(q('url'))})
-      if path == '/api/poster':
-        return self._json(200, {'image': _poster(q('url'), provider)})
       if path == '/api/episodes':
         return self._json(200, {'episodes': _load_plugin(provider).episodes(q('url'))})
       if path == '/api/downloads':
@@ -280,6 +207,41 @@ class _Handler(BaseHTTPRequestHandler):
       return self._json(404, {'error': 'not found'})
     except Exception as e:
       return self._err(e)
+
+  @staticmethod
+  def _pool():
+    # Urutan fallback resolve: otakudesu dulu, anoboy cadangan.
+    return [(n, _load_plugin(n)) for n in ('otakudesu', 'anoboy')]
+
+  def _discover(self, q):
+    # List layer (AniList) — item shape {id anilist-*, title, image, ...}.
+    tab = q('tab', 'top')
+    if tab == 'top':
+      return self._json(200, {'items': discovery.top(24)})
+    if tab == 'season':
+      return self._json(200, {'items': discovery.seasonal(24)})
+    if tab == 'genre':
+      return self._json(200, {'items': discovery.by_genre(q('genre', 'Action'), 24)})
+    if tab == 'search':
+      return self._json(200, {'results': discovery.search(q('q', ''), 8)})
+    if tab == 'latest':
+      # Rail "Rilis Terbaru": scrape home; fallback provider kalau kosong.
+      items = _load_plugin('otakudesu').latest()
+      if not items:
+        items = _load_plugin('anoboy').latest()
+      return self._json(200, {'items': items})
+    return self._json(400, {'error': f'unknown tab: {tab}'})
+
+  def _api_resolve(self, body):
+    # {id, title} → {sources: {provider: url}, candidates: [...]}. candidates
+    # cuma di-fetch kalau sources kosong (UI butuh list manual) — hemat req.
+    title = (body.get('title') or '').strip()
+    if not title:
+      return self._json(400, {'error': 'title required'})
+    sources = _resolve_urls(self._pool(), title)
+    candidates = [] if sources else _resolve_candidates(self._pool(), title)
+    return self._json(200, {'id': body.get('id'), 'sources': sources,
+                            'candidates': candidates})
 
   def _play(self, body):
     try:
