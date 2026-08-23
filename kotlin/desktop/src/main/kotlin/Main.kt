@@ -48,6 +48,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import io.ktor.client.*
@@ -64,6 +66,7 @@ import kotlinx.serialization.json.JsonObject
 import java.awt.Desktop
 import java.net.ServerSocket
 import java.net.URI
+import java.util.concurrent.TimeUnit
 
 const val PORT = 8756
 const val SERVER = "http://127.0.0.1:$PORT"
@@ -86,6 +89,18 @@ val BodyFont = FontFamily(Font("fonts/rubik-400.ttf", FontWeight.Normal), Font("
 @Serializable data class OResp(val options: List<Opt>)
 val OPT_RES = Regex("^\\[(.+?)\\]\\s*(.*)$")
 fun optName(label: String) = OPT_RES.find(label)?.groupValues?.getOrNull(2)?.takeIf { it.isNotBlank() } ?: label
+// mega streams di-return server sebagai path relatif (/api/mega-stream/N); browser resolve
+// terhadap origin, mpv/URI butuh URL absolut.
+fun absStream(url: String) = if (url.startsWith("/")) SERVER + url else url
+// ponytail: mirror player.py — LOCALAPPDATA (hasil auto-install TUI), scoop, lalu PATH.
+// upgrade: bundle mpv via jpackage kalau mau desktop benar-benar mandiri.
+fun findMpv(): String? {
+  val home = System.getProperty("user.home"); val la = System.getenv("LOCALAPPDATA")
+  val cand = listOfNotNull(
+    la?.let { "$it/Indonime/mpv/mpv.com" }, la?.let { "$it/Indonime/mpv/mpv.exe" },
+    "$home/scoop/apps/mpv/current/mpv.com", "$home/scoop/apps/mpv/current/mpv.exe", "mpv")
+  return cand.firstOrNull { c -> try { ProcessBuilder(c, "--version").start().waitFor(5, TimeUnit.SECONDS) } catch (_: Exception) { false } }
+}
 
 val http = HttpClient(CIO) { install(ContentNegotiation) { json(kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }) } }
 // ponytail: renderer bisa di-override via env buat iGPU lawas/VM; SOFTWARE = low-end mode (animasi berat dimatiin)
@@ -129,7 +144,7 @@ fun main() {
     fun doSearch() { if (query.isBlank()) { results = null; return }; scope.launch { busy = "Mencari…"; try { results = (http.get("$SERVER/api/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&provider=$provider").body() as SearchResp).results } catch (e: Exception) { error = e.message }; busy = "" } }
     fun pickAnime(item: CI) { scope.launch { busy = "Memuat…"; try { anime = item to (http.get("$SERVER/api/episodes?url=${item.url}&provider=$provider").body() as EpsResp).episodes; view = View.Detail; results = null } catch (e: Exception) { error = e.message }; busy = "" } }
     fun pickEp(ep: EP) { scope.launch { busy = "Mengambil link…"; try { opts = ep to (http.get("$SERVER/api/downloads?url=${java.net.URLEncoder.encode(ep.url, "UTF-8")}&provider=$provider").body() as OResp).options; sel = emptyMap() } catch (e: Exception) { error = e.message }; busy = "" } }
-    fun playServer(o: Opt) { scope.launch { busy = "Menghubungi…"; try { val r: PlayResp = http.post("$SERVER/api/play") { contentType(ContentType.Application.Json); setBody(mapOf("server_url" to o.url, "label" to o.label)) }.body(); if (r.stream != null) { stream = r.stream; opts = null; view = View.Player } else error = r.error ?: "Gagal" } catch (e: Exception) { error = e.message }; busy = "" } }
+    fun playServer(o: Opt) { scope.launch { busy = "Menghubungi…"; try { val r: PlayResp = http.post("$SERVER/api/play") { contentType(ContentType.Application.Json); setBody(mapOf("server_url" to o.url, "label" to o.label)) }.body(); if (r.stream != null) { stream = absStream(r.stream); opts = null; view = View.Player } else error = r.error ?: "Gagal" } catch (e: Exception) { error = e.message }; busy = "" } }
     fun dlServer(o: Opt, ep: EP) { scope.launch { try { http.post("$SERVER/api/download") { contentType(ContentType.Application.Json); setBody(mapOf("server_url" to o.url, "title" to ep.title)) } } catch (e: Exception) { error = e.message } } }
 
     when (phase) { "boot","loading" -> BootScreen(); else ->
@@ -312,30 +327,34 @@ fun Modifier.shd(radius: Dp, shape: Shape) = if (lowEnd) this else this.shadow(r
 }
 
 @Composable fun OptModal(ep: EP, options: List<Opt>, sel: Map<String, String>, onPick: (String, String) -> Unit, onPlay: (Opt) -> Unit, onDownload: (Opt) -> Unit, onClose: () -> Unit) {
-    val groups = remember(options) {
-        val m = LinkedHashMap<String, MutableList<Opt>>()
-        options.forEach { o -> val res = OPT_RES.find(o.label)?.groupValues?.getOrNull(1) ?: "Lainnya"; m.getOrPut(res) { mutableListOf() }.add(o) }
-        m.map { it.key to it.value }
-    }
-    Box(Modifier.fillMaxSize().background(Bg.copy(0.7f)), contentAlignment = Alignment.Center) {
-        Column(Modifier.fillMaxWidth().padding(20.dp).widthIn(max = 520.dp).clip(CardR).background(Card).border(1.dp, Border, CardR).shd(30.dp, CardR).padding(20.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(ep.title, color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, fontFamily = HeadFont, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Box(Modifier.size(40.dp).clip(CircleShape).clickable { onClose() }, contentAlignment = Alignment.Center) { XIco(16.dp, FgDim) }
-            }
-            Spacer(Modifier.height(8.dp))
-            if (options.isEmpty()) {
-                Spacer(Modifier.height(24.dp)); Text("Tidak ada server kompatibel.", color = FgDim, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-            } else Column(Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                groups.forEach { (res, list) ->
+    // ponytail: pakai window Dialog terpisah (bukan Box overlay di dalam Column utama) —
+    // overlay in-root punya z-order/hit-test bermasalah di Skia desktop (tombol gak bisa diklik).
+    // upgrade: kalau butuh multi-aksi per grup tanpa scroll, split jadi multi-step wizard.
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val groups = remember(options) {
+            val m = LinkedHashMap<String, MutableList<Opt>>()
+            options.forEach { o -> val res = OPT_RES.find(o.label)?.groupValues?.getOrNull(1) ?: "Lainnya"; m.getOrPut(res) { mutableListOf() }.add(o) }
+            m.map { it.key to it.value }
+        }
+        Box(Modifier.width(560.dp).clip(CardR).background(Card).border(1.dp, Border, CardR).shd(30.dp, CardR).padding(20.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(ep.title, color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, fontFamily = HeadFont, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Box(Modifier.size(40.dp).clip(CircleShape).clickable { onClose() }, contentAlignment = Alignment.Center) { XIco(16.dp, FgDim) }
+                }
+                if (options.isEmpty()) {
+                    Text("Tidak ada server kompatibel.", color = FgDim, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                } else groups.forEach { (res, list) ->
                     val cur = list.firstOrNull { it.url == sel[res] } ?: list.first()
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(res, color = Primary2, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.width(52.dp))
                         ResSelect(list, cur, { onPick(res, it.url) }, Modifier.weight(1f))
                         Spacer(Modifier.width(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(Modifier.height(38.dp).clip(PillR).background(Brush.linearGradient(listOf(Accent, Color(0xFFE11D48)))).shd(16.dp, PillR).clickable { onPlay(cur) }.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { PlayIco(14.dp); Spacer(Modifier.width(6.dp)); Text("Play", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) } }
-                            Box(Modifier.height(38.dp).clip(PillR).background(Color.White.copy(0.06f)).border(1.dp, Border, PillR).clickable { onDownload(cur) }.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { DownIco(14.dp, Fg); Spacer(Modifier.width(6.dp)); Text("Download", color = Fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) } }
+                        Box(Modifier.width(1.dp).height(34.dp).background(Border))
+                        Spacer(Modifier.width(10.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            PrimaryBtn("Play", icon = { PlayIco(14.dp, Color.White) }) { onPlay(cur) }
+                            GhostBtn("Download", icon = { DownIco(14.dp, Fg) }) { onDownload(cur) }
                         }
                     }
                 }
@@ -345,9 +364,19 @@ fun Modifier.shd(radius: Dp, shape: Shape) = if (lowEnd) this else this.shadow(r
 }
 
 @Composable fun PlayerScreen(streamUrl: String, onBack: () -> Unit) {
+    // parity React <video autoPlay>: langsung putar pas layar kebuka, tanpa klik ekstra.
+    var launched by remember { mutableStateOf(false) }
+    LaunchedEffect(streamUrl) {
+        try {
+            val mpv = findMpv()
+            if (mpv != null) Runtime.getRuntime().exec(arrayOf(mpv, "--force-window=yes", "--title=Indonime Player", streamUrl))
+            else Desktop.getDesktop().browse(URI(streamUrl))
+            launched = true
+        } catch (_: Exception) {}
+    }
     Column(Modifier.fillMaxSize().widthIn(max = 1200.dp).padding(20.dp)) {
         GhostBtn("Kembali", icon = { BackIco() }) { onBack() }; Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth().weight(1f).clip(CardR).background(Card), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) { Canvas(Modifier.fillMaxSize()) { drawPath(Path().apply { moveTo(3f, 1f); lineTo(3f, 15f); lineTo(15f, 8f); close() }, Primary, style = Fill) } }; Spacer(Modifier.height(12.dp)); Text("Video Player", color = FgDim, fontSize = 16.sp); Spacer(Modifier.height(8.dp)); Text(streamUrl, color = Muted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 40.dp)); Spacer(Modifier.height(16.dp)); PrimaryBtn("Putar di MPV", icon = { PlayIco(20.dp) }) { try { Runtime.getRuntime().exec(arrayOf("mpv", streamUrl)) } catch (_: Exception) { try { Desktop.getDesktop().browse(URI(streamUrl)) } catch (_: Exception) {} } } } }
+        Box(Modifier.fillMaxWidth().weight(1f).clip(CardR).background(Card), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) { Canvas(Modifier.fillMaxSize()) { drawPath(Path().apply { moveTo(3f, 1f); lineTo(3f, 15f); lineTo(15f, 8f); close() }, Primary, style = Fill) } }; Spacer(Modifier.height(12.dp)); Text("Video Player", color = FgDim, fontSize = 16.sp); Spacer(Modifier.height(8.dp)); Text(streamUrl, color = Muted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 40.dp)); Spacer(Modifier.height(16.dp)); if (!launched) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = Primary) else Text("Video diputar di pemutar eksternal — tutup pemutar untuk kembali.", color = Green, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 30.dp)); Spacer(Modifier.height(14.dp)); PrimaryBtn("Putar Lagi di MPV", icon = { PlayIco(20.dp) }) { try { val mpv = findMpv(); if (mpv != null) Runtime.getRuntime().exec(arrayOf(mpv, "--force-window=yes", "--title=Indonime Player", streamUrl)) else Desktop.getDesktop().browse(URI(streamUrl)) } catch (_: Exception) {} } } }
         Text("Video tidak muncul? Coba resolusi atau server lain.", color = FgDim, fontSize = 12.sp, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center)
     }
 }
