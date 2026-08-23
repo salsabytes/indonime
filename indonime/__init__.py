@@ -4,7 +4,6 @@ import importlib
 import io
 import json
 import os
-import pkgutil
 import shutil
 import sys
 import threading
@@ -18,11 +17,13 @@ from .ui import (
   make_postplay_actions, make_footer, progress,
 )
 
+from . import discovery
 from . import plugins
+from .resolve import candidates as _resolve_candidates, resolve as _resolve
 from tuiko import multiselect, prompt, select, session
 from .ext import pdrain, megaNZ, gdrive
 from .ext.megaNZ import _mega_fid, _mega_key
-from .plugins._base import cache_clear, cached, http_download, resolve_url
+from .plugins._base import cache_clear, http_download, resolve_url
 
 # Human-readable byte size (1024-based).
 def _fmt_size(n):
@@ -641,65 +642,74 @@ def _episode_nav(episode_list, plugin, back_label='<< BACK',
 
 
 
-# Customizable shortcuts (search screen)
-# Map key → action. Actions handled in _tui_loop: 'provider', 'quit', 'abort'.
-# Keep keys non-printable (ctrl-...) so they don't hijack search-box typing.
-# ctrl-b because VS Code's terminal strips Alt and swallows Ctrl+P/Q (Quick
-# Open / Quick Access); b isn't intercepted by any terminal. Quit needs no
-# shortcut — escape / the ABORT sentinel already quit.
-_SHORTCUTS = {
-  "ctrl-b": "provider",
-}
+# Provider pool — fallback chain (urutan = prioritas resolve/load).
+def _plugin_pool():
+  return [('otakudesu', importlib.import_module('indonime.plugins.otakudesu')),
+          ('anoboy', importlib.import_module('indonime.plugins.anoboy'))]
 
-# Catalog cache: list_all() is big (845KB) — keep it cached persistently so
-# back-navigation doesn't refetch. Keyed per plugin module via cached().
-@cached(ttl=600, persist=True)
-def _get_catalog(plugin):
-  with progress("Loading catalog..."):
-    return plugin.list_all()
 
-# Search and select helper
-def _catalog_select(plugin, key_source=None, out=None, shortcuts=None):
-  # Live fuzzy search over the full catalog — no Enter needed.
-  # Returns (url, episode_list), a shortcut action string, 'abort' when the
-  # user bails (escape / ABORT sentinel), or None when nothing is found.
+def _load_by_title(title, key_source=None, out=None):
+  # discovery title → episode list via resolve multi-provider. Provider pertama
+  # yang episode list-nya sukses dipakai; semua gagal → candidate manual.
+  pool = _plugin_pool()
+  with progress("Resolving source...", out=out):
+    sources = _resolve(pool, title)
+  for name, plugin in pool:
+    url = sources.get(name)
+    if not url:
+      continue
+    with progress("Fetching episode list...", out=out):
+      episode_list = plugin.episodes(url)
+    if episode_list:
+      return plugin, url, episode_list
+  # resolve kosong / semua provider episode-nya kosong → pilih manual
+  with progress("Mencari judul alternatif...", out=out):
+    cands = _resolve_candidates(pool, title)
+  if not cands:
+    return None
+  choices = [f"[{c[0]}] {c[1]}" for c in cands] + ['↩  -- ABORT --']
+  sel = select("ℹ️  Pilih judul terkait:", choices, search=True, fuzzy=True,
+               key_source=key_source, out=out, header=banner_header())
+  if sel is None or sel == len(choices) - 1:
+    return 'abort'
+  name, _t, url = cands[sel]
+  pl = dict(pool)[name]
+  with progress("Fetching episode list...", out=out):
+    episode_list = pl.episodes(url)
+  if not episode_list:
+    return None
+  return pl, url, episode_list
+
+
+def _catalog_select(key_source=None, out=None):
+  # Top picks (AniList, cached 24h) + fuzzy lokal. Returns (plugin, url,
+  # episode_list), 'abort', 'provider-down' (AniList unreachable), atau None.
   print_header("🔎 SEARCHING", "🔎")
-  catalog = _get_catalog(plugin)
+  with progress("Loading top picks...", out=out):
+    items = discovery.top(50)
+  if not items:
+    return 'provider-down'  # AniList down — bukan "no results"
 
-  if not catalog:
-    return 'provider-down'  # load failed or provider is down — not "no results"
-
-  titles = [item['title'] for item in catalog] + ['↩  -- ABORT --']
+  titles = [item['title'] for item in items] + ['↩  -- ABORT --']
   sel = select("📺  Cari anime:", titles, search=True, fuzzy=True,
-               key_source=key_source, out=out, header=banner_header(),
-               shortcuts=shortcuts)
+               key_source=key_source, out=out, header=banner_header())
 
-  if isinstance(sel, str):
-    return sel  # shortcut action (e.g. 'provider', 'quit')
   if sel is None or sel == len(titles) - 1:
     return 'abort'  # user bailed (escape / ABORT sentinel) — back to search silently
 
-  selected = catalog[sel]
-  with progress("Fetching episode list...", out=out):
-    episode_list = plugin.episodes(selected['url'])
+  return _load_by_title(items[sel]['title'], key_source=key_source, out=out)
 
-  if not episode_list:
-    return None
 
-  return selected['url'], episode_list
-
-def _search_and_select(plugin, query, key_source=None, out=None, shortcuts=None):
-  # Search → pick title → fetch episode list.
-  # Returns (url, episode_list), a shortcut action string ('provider'/'quit'/...),
-  # 'abort' when the user bails, or None when nothing is found.
-  # query=None → live fuzzy search over the cached full catalog (TUI mode).
-  # query given → network search (one-shot CLI mode).
+def _search_and_select(query, key_source=None, out=None):
+  # query None → fuzzy atas top picks (TUI). query → AniList search → pilih →
+  # resolve → episode list. Returns (plugin, url, episode_list), 'abort',
+  # 'provider-down', shortcut action string, atau None.
   if query is None:
-    return _catalog_select(plugin, key_source=key_source, out=out, shortcuts=shortcuts)
+    return _catalog_select(key_source=key_source, out=out)
 
   print_header("🔎 SEARCHING", "🔎")
   with progress("Searching...", out=out):
-    results = plugin.search_anime(query)
+    results = discovery.search(query, 8)
 
   if not results:
     return None
@@ -711,46 +721,19 @@ def _search_and_select(plugin, query, key_source=None, out=None, shortcuts=None)
   if sel is None or sel == len(choices) - 1:
     return None
 
-  selected_title = choices[sel]
-  selected_url = next(
-    item['url'] for item in results
-    if item['title'] == selected_title
-  )
+  return _load_by_title(results[sel]['title'], key_source=key_source, out=out)
 
-  with progress("Fetching episode list...", out=out):
-    episode_list = plugin.episodes(selected_url)
-
-  if not episode_list:
-    return None
-
-  return selected_url, episode_list
 
 def _tui_loop():
-  p_name = 'otakudesu'
-  _last_plugin_name = None
-  _plugin = None
-  available_providers = [
-    m.name for m in pkgutil.iter_modules(plugins.__path__)
-    if not m.name.startswith('_')
-  ]
-
   while True:
     # Run straight into the anime search — no main menu.
-    if p_name != _last_plugin_name:
-      _plugin = importlib.import_module(f'indonime.plugins.{p_name}')
-      _last_plugin_name = p_name
-
-    hit = _search_and_select(_plugin, None, shortcuts=_SHORTCUTS)
+    hit = _search_and_select(None)
     if isinstance(hit, str):
-      if hit == 'provider':
-        sel = select("📡  Select provider:", available_providers, header=banner_header())
-        if sel is not None:
-          p_name = available_providers[sel]
-      elif hit == 'provider-down':
-        print_warning("Catalog load failed — the site may be down. Try again or press ctrl-b to switch provider.")
+      if hit == 'provider-down':
+        print_warning("Top picks gagal dimuat — AniList mungkin sedang down. Coba lagi.")
         time.sleep(2)
       elif hit == 'quit' or hit == 'abort':
-        break  # quit shortcut, or escape/ABORT with no menu left → leave
+        break
       # unknown action → just re-run the search
       continue
     if hit is None:
@@ -758,9 +741,9 @@ def _tui_loop():
       time.sleep(2)
       continue
 
-    selected_url, episode_list = hit
+    plugin, selected_url, episode_list = hit
     if _episode_nav(
-      episode_list, _plugin,
+      episode_list, plugin,
       back_label='<< BACK TO SEARCH', show_banner=True,
       anime_url=selected_url,
     ) == 'quit':
@@ -771,24 +754,17 @@ def _tui_loop():
   print_success("Thanks for using Indonime! ~ Sayonara ~")
 
 
-def _one_shot_mode(query, provider, mode):
+def _one_shot_mode(query, mode):
   # One-shot search → play or download → exit.
   print_banner()
 
-  try:
-    plugin = importlib.import_module(f'indonime.plugins.{provider}')
-  except Exception as e:
-    print_error(f"Plugin error: {e}")
-    prompt("↩  [enter] to continue")
-    return
-
-  hit = _search_and_select(plugin, query)
+  hit = _search_and_select(query)
   if hit is None:
     print_warning("Nothing found.")
     prompt("↩  [enter] to continue")
     return
 
-  selected_url, episode_list = hit
+  plugin, selected_url, episode_list = hit
 
   _episode_nav(
     episode_list, plugin,
@@ -813,17 +789,12 @@ def main():
     '-d', '--download', action='store_true',
     help='Download instead of play (use with search mode)'
   )
-  parser.add_argument(
-    '-p', '--provider', default='otakudesu',
-    choices=['otakudesu', 'anoboy'],
-    help='Provider (default: otakudesu)'
-  )
   args = parser.parse_args()
 
   try:
     with session():
       if args.mode == 'search' and args.query:
-        _one_shot_mode(' '.join(args.query), args.provider, 'download' if args.download else 'play')
+        _one_shot_mode(' '.join(args.query), 'download' if args.download else 'play')
       else:
         _tui_loop()
   except KeyboardInterrupt:
