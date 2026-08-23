@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from . import (
   _compatible_servers, _download_mega, _download_pdrain,
@@ -23,7 +23,7 @@ from . import plugins
 from .resolve import candidates as _resolve_candidates, resolve as _resolve_urls
 from .ext import gdrive, megaNZ, pdrain
 from .ext.megaNZ import _mega_fid
-from .plugins._base import resolve_url
+from .plugins._base import http_stream, resolve_url
 
 _DL_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 # Embedded player (Kotlin/JavaFX) cache: file penuh di-download dulu karena MP4
@@ -158,6 +158,14 @@ class _Handler(BaseHTTPRequestHandler):
       except ValueError:
         return self._json(404, {'error': 'bad stream id'})
       return self._serve_mega_stream(sid)
+    if p.path == '/api/stream':
+      # Range proxy utk direct-URL resolver (pdrain/gdrive): pixeldrain dkk
+      # nge-block fingerprint browser (403) → backend yang fetch (H1) terus
+      # forward byte stream + Range ke browser. SSRF-safe via _base allowlist.
+      url = (parse_qs(p.query).get('url') or [''])[0]
+      if not url:
+        return self._json(400, {'error': 'url required'})
+      return self._proxy_stream(url)
     if p.path.startswith('/api/'):
       return self._api(p.path, parse_qs(p.query))
     self._static(p.path)
@@ -255,11 +263,11 @@ class _Handler(BaseHTTPRequestHandler):
       if 'gdrive' in label or 'xtwap' in url.lower() or 'gdplayer' in url.lower():
         target = gdrive.scrape(url)
         if target:
-          return self._json(200, {'stream': target})
+          return self._json(200, {'stream': '/api/stream?url=' + quote(target, safe='')})
       else:
         target = pdrain.scrape(url)
         if target:
-          return self._json(200, {'stream': target})
+          return self._json(200, {'stream': '/api/stream?url=' + quote(target, safe='')})
       # Last resort: try mega (intermediary may redirect there)
       return self._play_mega_stream(url)
     except Exception as e:
@@ -304,6 +312,38 @@ class _Handler(BaseHTTPRequestHandler):
         'bytes_counter': bytes_counter,
       }
     return self._json(200, {'stream': f'/api/mega-stream/{sid}'})
+
+  def _proxy_stream(self, url):
+    # Range proxy: byte-exact forward dari upstream (sudah lolos SSRF allowlist
+    # via _open di _base.http_stream). Status + Content-Type/Range di-forward;
+    # kalau upstream 206 pasokan Range, browser bisa seek seperti sumber asli.
+    # Forward client Range → upstream biar 206 + seek kerja (bukan full 200).
+    range_header = self.headers.get('Range')
+    try:
+      up = http_stream(url, timeout=45,
+                       headers={'Range': range_header} if range_header else None)
+    except Exception as e:
+      return self._json(502, {'error': f'Stream upstream error: {e}'})
+    try:
+      self.send_response(up.status)
+      self.send_header('Content-Type', up.headers.get('Content-Type') or 'application/octet-stream')
+      self.send_header('Accept-Ranges', 'bytes')
+      self.send_header('Access-Control-Allow-Origin', '*')
+      crange = up.headers.get('Content-Range')
+      if crange:
+        self.send_header('Content-Range', crange)
+      elif up.headers.get('Content-Length'):
+        self.send_header('Content-Length', up.headers['Content-Length'])
+      self.end_headers()
+      while True:
+        chunk = up.read(256 * 1024)
+        if not chunk:
+          break
+        self.wfile.write(chunk)
+    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+      pass  # client aborted — nothing to send to
+    finally:
+      up.close()
 
   def _serve_mega_stream(self, sid):
     """Serve the decrypted mega temp file to the browser."""

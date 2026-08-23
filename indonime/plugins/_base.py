@@ -81,8 +81,8 @@ def http_post_json(url, payload, timeout=15):
     return json.loads(r.read().decode('utf-8'))
 
 # GET → open file-like response; caller reads chunks. Raises on error.
-def http_stream(url, timeout=30):
-  return _open(url, timeout)
+def http_stream(url, timeout=30, headers=None):
+  return _open(url, timeout, headers=headers)
 
 # GET with redirects → final URL after all redirects.
 def resolve_url(url, timeout=15):
