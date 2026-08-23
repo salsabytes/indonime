@@ -18,7 +18,6 @@ import { Ic } from './src/icons'
 import { C, F } from './src/theme'
 import { s } from './src/styles'
 
-const _noPoster = new Set()
 const HERO_MS = 6000
 const BRK = 900 // breakpoint web @media (max-width: 900px)
 
@@ -40,15 +39,17 @@ function AppInner() {
     Outfit_500Medium, Outfit_700Bold, Outfit_800ExtraBold,
     Rubik_400Regular, Rubik_500Medium, Rubik_600SemiBold,
   })
-  const [providers, setProviders] = useState([])
-  const [provider, setProvider] = useState('otakudesu')
+  const [top, setTop] = useState([])
+  const [seasonal, setSeasonal] = useState([])
+  const [latest, setLatest] = useState(null)
+  const [genres, setGenres] = useState(['Semua'])
+  const [genre, setGenre] = useState('Semua')
+  const [genreItems, setGenreItems] = useState(null)
+  const [genreLoading, setGenreLoading] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState(null)
   const [searching, setSearching] = useState(false)
-  const [catalog, setCatalog] = useState(null)
-  const [featured, setFeatured] = useState([])
-  const [latest, setLatest] = useState(null)
-  const [genre, setGenre] = useState('Semua')
+  const [cands, setCands] = useState(null)
   const [view, setView] = useState('home')
   const [anime, setAnime] = useState(null)
   const [stream, setStream] = useState(null)
@@ -60,17 +61,13 @@ function AppInner() {
   const scrollTop = () => scrollRef.current?.scrollTo({ y: 0, animated: false })
 
   useEffect(() => {
-    api.providers().then(r => setProviders(r.providers)).catch(() => {})
-  }, [])
-
-  useEffect(() => {
     let alive = true
-    setCatalog(null); setFeatured([]); setLatest(null)
-    api.catalog(provider).then(r => alive && setCatalog(r.catalog)).catch(() => {})
-    api.home(provider).then(r => alive && setFeatured(r.items)).catch(() => {})
-    api.latest(provider).then(r => alive && setLatest(r.items)).catch(() => {})
+    api.discover('top').then(r => alive && setTop(r.items)).catch(() => {})
+    api.discover('season').then(r => alive && setSeasonal(r.items)).catch(() => {})
+    api.discover('latest').then(r => alive && setLatest(r.items)).catch(() => {})
+    api.discover('genres').then(r => alive && setGenres(['Semua', ...r.genres])).catch(() => {})
     return () => { alive = false }
-  }, [provider])
+  }, [])
 
   useEffect(() => {
     const t = setInterval(() => api.jobs().then(r => setJobs(r.jobs)).catch(() => {}), 1500)
@@ -92,26 +89,60 @@ function AppInner() {
     const q = query.trim()
     if (!q) return setResults(null)
     setSearching(true)
-    api.search(q, provider)
+    api.discover('search', 'q=' + encodeURIComponent(q))
       .then(r => setResults(r.results))
       .catch(err => setError(err.message))
       .finally(() => setSearching(false))
   }
 
-  const goHome = () => { setView('home'); setResults(null); setQuery(''); scrollTop() }
+  const goHome = () => { setView('home'); setResults(null); setQuery(''); setCands(null); setGenre('Semua'); scrollTop() }
+
+  const pickGenre = g => {
+    setGenre(g); setGenreItems(null)
+    if (g === 'Semua') return
+    setGenreLoading(true)
+    api.discover('genre', 'genre=' + encodeURIComponent(g))
+      .then(r => setGenreItems(r.items))
+      .catch(err => setError(err.message))
+      .finally(() => setGenreLoading(false))
+  }
+
+  const openDetail = (item, prov, url) => {
+    setBusy('Memuat detail...')
+    Promise.all([api.info(url, prov), api.episodes(url, prov)])
+      .then(([info, eps]) => {
+        setAnime({ item, provider: prov, url, info: info.info, episodes: eps.episodes })
+        setView('anime'); setResults(null); setCands(null)
+        scrollTop()
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setBusy(''))
+  }
 
   const pickAnime = async item => {
-    setBusy('Memuat detail...')
+    setBusy('Mencari sumber...')
     try {
-      const [info, eps] = await Promise.all([
-        api.info(item.url, provider), api.episodes(item.url, provider),
-      ])
-      setAnime({ item, info: info.info, episodes: eps.episodes })
-      setView('anime'); setResults(null)
-      scrollTop()
+      if (item.url) {  // shape Rilis Terbaru: url provider langsung
+        const prov = item.url.includes('otakudesu') ? 'otakudesu' : 'anoboy'
+        return openDetail(item, prov, item.url)
+      }
+      const { sources, candidates } = await api.resolve(item.id, item.title)
+      for (const [prov, url] of Object.entries(sources)) {
+        // gap-fill: provider pertama yang sukses; gagal → coba berikutnya
+        try {
+          const [info, eps] = await Promise.all([api.info(url, prov), api.episodes(url, prov)])
+          setAnime({ item, provider: prov, url, info: info.info, episodes: eps.episodes })
+          setView('anime'); setResults(null); setCands(null)
+          scrollTop()
+          return
+        } catch { /* coba provider lain */ }
+      }
+      setCands(candidates)  // resolve kosong / semua gagal → pilih manual
     } catch (err) { setError(err.message) }
     finally { setBusy('') }
   }
+
+  const pickCandidate = (prov, url) => openDetail(null, prov, url)
 
   const handlePlay = async url => {
     setBusy('Menghubungi server...')
@@ -125,14 +156,9 @@ function AppInner() {
   }
 
   const handleDownload = (opt, ep) => {
-    const base = (anime.info.title || anime.item.title).replace(/\s+Subtitle Indonesia.*$/i, '')
+    const base = (anime.info.title || (anime.item && anime.item.title) || '').replace(/\s+Subtitle Indonesia.*$/i, '')
     api.download(opt.url, `${base} — ${ep.title}`).catch(err => setError(err.message))
   }
-
-  const genres = useMemo(() => {
-    const set = new Set((catalog || []).flatMap(i => i.genre || []))
-    return ['Semua', ...set]
-  }, [catalog])
 
   if (!fontsLoaded) return null
 
@@ -141,19 +167,19 @@ function AppInner() {
       {Platform.OS !== 'web' && <StatusBar style="light" backgroundColor={C.bg} />}
       <AmbientGlow />
 
-      <Topbar providers={providers} provider={provider} setProvider={setProvider}
-              query={query} setQuery={setQuery} onSubmit={submit} onHome={goHome} />
+      <Topbar query={query} setQuery={setQuery} onSubmit={submit} onHome={goHome} />
 
       <ScrollView ref={scrollRef} style={s.scroll} keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}>
         {view === 'home' && (
-          <HomeView featured={featured} catalog={catalog} latest={latest}
+          <HomeView top={top} seasonal={seasonal} latest={latest}
+                    genres={genres} genre={genre} onGenrePick={pickGenre}
+                    genreItems={genreItems} genreLoading={genreLoading}
                     results={results} searching={searching} query={query}
-                    provider={provider} genres={genres} genre={genre} setGenre={setGenre}
                     onPick={pickAnime} scrollRef={scrollRef} />
         )}
         {view === 'anime' && anime && (
-          <AnimeView anime={anime} provider={provider} onPlay={handlePlay}
+          <AnimeView anime={anime} onPlay={handlePlay}
                      onDownload={handleDownload} onBack={goHome} />
         )}
         {view === 'player' && stream && (
@@ -177,6 +203,32 @@ function AppInner() {
         </View>
       )}
 
+      {cands && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setCands(null)}>
+          <Pressable style={s.modalOverlay} onPress={() => setCands(null)}>
+            <Pressable style={s.modalCard} onPress={() => {}}>
+              <View style={s.optsHead}>
+                <Text style={s.optsTitle} numberOfLines={1}>Pilih judul yang sesuai</Text>
+                <Pressable style={s.iconBtn} onPress={() => setCands(null)} hitSlop={8} accessibilityLabel="Tutup">
+                  <Ic.x color={C.fgDim} size={16} />
+                </Pressable>
+              </View>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {!cands.length && <Text style={[s.hint, { textAlign: 'center', paddingVertical: 12 }]}>Belum ada di provider. Coba judul lain atau nanti lagi.</Text>}
+                {cands.map((c, i) => (
+                  <Pressable key={i} style={({ pressed }) => [s.ep, pressed && { backgroundColor: C.card2 }]}
+                             onPress={() => { setCands(null); openDetail(null, c[0], c[2]) }}>
+                    <Text style={s.epNum}>{c[0]}</Text>
+                    <Text style={s.epTitle} numberOfLines={1}>{c[1]}</Text>
+                    <Ic.chev color={C.muted} size={16} />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
+
       {jobs.length > 0 && <JobToasts jobs={jobs} />}
     </View>
   )
@@ -187,22 +239,21 @@ const sectionY = {}
 
 /* ── Header ─────────────────────────────────────────────── */
 
-function Topbar({ providers, provider, setProvider, query, setQuery, onSubmit, onHome }) {
+function Topbar({ query, setQuery, onSubmit, onHome }) {
   const { desktop, width } = useBrk()
   if (desktop) {
-    // Layout desktop: satu baris 64px — logo | tabs | search (flex, max 360, kanan)
+    // Layout desktop: satu baris 64px — logo | search (flex, max 360, kanan)
     return (
       <View style={[s.topbar, { paddingVertical: 0 }]}>
         <View style={s.topbarInner}>
           <LogoButton onPress={onHome} />
-          <ProviderTabs providers={providers} provider={provider} setProvider={setProvider} />
           <SearchBox query={query} setQuery={setQuery} onSubmit={onSubmit}
                      style={{ flex: 1, maxWidth: 360, marginLeft: 'auto' }} />
         </View>
       </View>
     )
   }
-  // Layout mobile: 3 baris — logo+home / tabs / search
+  // Layout mobile: 2 baris — logo+home / search
   return (
     <View style={s.topbar}>
       <View style={s.topbarRow}>
@@ -213,7 +264,6 @@ function Topbar({ providers, provider, setProvider, query, setQuery, onSubmit, o
           </Pressable>
         )}
       </View>
-      <ProviderTabs providers={providers} provider={provider} setProvider={setProvider} full />
       <SearchBox query={query} setQuery={setQuery} onSubmit={onSubmit} />
     </View>
   )
@@ -233,24 +283,6 @@ function LogoButton({ onPress }) {
   )
 }
 
-function ProviderTabs({ providers, provider, setProvider, full }) {
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.tabs, full && { flexGrow: 1 }]}>
-      <View style={[s.tabsInner, { marginLeft: full ? 0 : 4 }, full && { width: '100%' }]}>
-        {providers.map(p => (
-          <Pressable key={p} onPress={() => setProvider(p)} style={[s.tab, p === provider && { boxShadow: '0 2px 12px rgba(124,58,237,0.4)' }]}
-                     accessibilityRole="tab" accessibilityState={{ selected: p === provider }}>
-            {p === provider && (
-              <LinearGradient colors={[C.primary, C.primaryV2]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[s.tabFill, Platform.OS === 'web' && { zIndex: -1 }]} />
-            )}
-            <Text style={p === provider ? s.tabOnText : s.tabText}>{p}</Text>
-          </Pressable>
-        ))}
-      </View>
-    </ScrollView>
-  )
-}
-
 function SearchBox({ query, setQuery, onSubmit, style }) {
   return (
     <View style={[s.searchBox, style]}>
@@ -266,7 +298,7 @@ function SearchBox({ query, setQuery, onSubmit, style }) {
 
 /* ── Home ───────────────────────────────────────────────── */
 
-function HomeView({ featured, catalog, latest, results, searching, query, provider, genres, genre, setGenre, onPick, scrollRef }) {
+function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItems, genreLoading, results, searching, query, onPick, scrollRef }) {
   const { desktop, width } = useBrk()
   // grid web: base auto-fill minmax(160px,1fr) gap 18; ≤480px: minmax(120px,1fr) gap 12
   // container dibatasi wrap max-width 1200 (web .wrap)
@@ -277,12 +309,12 @@ function HomeView({ featured, catalog, latest, results, searching, query, provid
   const gridCard = { width: (cw - gap * (cols - 1)) / cols }
   const gridStyle = [s.grid, { columnGap: gap, rowGap: gap }]
 
-  if (searching) {
+  if (searching || genreLoading) {
     return (
       <View style={[s.wrap, s.pagePad]}>
         <View style={[s.hintCenter, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }]}>
           <Spinner />
-          <Text style={[s.hint, { textAlign: 'center' }]}>Mencari…</Text>
+          <Text style={[s.hint, { textAlign: 'center' }]}>{searching ? 'Mencari…' : 'Memuat genre…'}</Text>
         </View>
       </View>
     )
@@ -296,7 +328,22 @@ function HomeView({ featured, catalog, latest, results, searching, query, provid
           ? <Text style={[s.hint, s.hintCenter, { textAlign: 'center' }]}>Tidak ada hasil. Coba judul lain.</Text>
           : (
             <View style={gridStyle}>
-              {results.map((it, i) => <Card key={it.url} item={it} i={i} provider={provider} onPick={onPick} style={{ width: gridCard.width }} />)}
+              {results.map((it, i) => <Card key={it.id} item={it} i={i} onPick={onPick} style={{ width: gridCard.width }} meta={it.score ? `★ ${it.score}` : ''} />)}
+            </View>
+          )}
+      </View>
+    )
+  }
+
+  if (genre !== 'Semua' && genreItems) {
+    return (
+      <View style={[s.wrap, s.pagePad]}>
+        <SectionTitle icon={<Ic.flame color={C.primary2} />}>Genre: {genre}</SectionTitle>
+        {genreItems.length === 0
+          ? <Text style={[s.hint, s.hintCenter, { textAlign: 'center' }]}>Tidak ada judul untuk genre ini.</Text>
+          : (
+            <View style={gridStyle}>
+              {genreItems.map((it, i) => <Card key={it.id} item={it} i={i} onPick={onPick} style={{ width: gridCard.width }} meta={`${it.score ? '★ ' + it.score : ''}${it.year ? ' · ' + it.year : ''}`} />)}
             </View>
           )}
       </View>
@@ -305,11 +352,11 @@ function HomeView({ featured, catalog, latest, results, searching, query, provid
 
   return (
     <>
-      {featured.length > 0 && <Hero items={featured} provider={provider} onPick={onPick} />}
+      {top.length > 0 && <Hero items={top} onPick={onPick} />}
 
       <View style={[s.wrap, s.pagePad]}>
         <View style={s.stats} accessibilityLabel="Statistik">
-          <StatCard style={{ flex: 1, minWidth: width <= 480 ? '100%' : 140 }} value={catalog?.length || '—'} label="Judul anime" />
+          <StatCard style={{ flex: 1, minWidth: width <= 480 ? '100%' : 140 }} value={top.length || '—'} label="Judul top" />
           <StatCard style={{ flex: 1, minWidth: width <= 480 ? '100%' : 140 }} value="4K" label="Kualitas stream" />
           <StatCard style={{ flex: 1, minWidth: width <= 480 ? '100%' : 140 }} value="24/7" label="Update episode" />
         </View>
@@ -317,23 +364,27 @@ function HomeView({ featured, catalog, latest, results, searching, query, provid
         <View onLayout={e => { sectionY.latest = e.nativeEvent.layout.y }}>
           <Rail title="Rilis Terbaru" icon={<Ic.clock color={C.primary2} />}
                 toolbar={genres.length > 1
-                  ? <GenreChips genres={genres} active={genre} onPick={setGenre} />
+                  ? <GenreChips genres={genres} active={genre} onPick={onGenrePick} />
                   : null}>
             {!latest
               ? <SkeletonRail n={8} />
-              : latest.filter(i => genre === 'Semua' || (i.genre || []).includes(genre)).map((it, i) => (
-                  <Card key={it.url} item={it} i={i} provider={provider} onPick={onPick} style={s.railCard} />
-                ))}
+              : latest.map((it, i) => <Card key={it.url} item={it} i={i} onPick={onPick} style={s.railCard} />)}
+          </Rail>
+        </View>
+
+        <View style={{ marginTop: 56 }} onLayout={e => { sectionY.season = e.nativeEvent.layout.y }}>
+          <Rail title="Musim Ini" icon={<Ic.flame color={C.primary2} />}>
+            {!seasonal.length
+              ? <SkeletonRail n={8} />
+              : seasonal.map((it, i) => <Card key={it.id} item={it} i={i} onPick={onPick} style={s.railCard} meta={`${it.score ? '★ ' + it.score : ''}${it.year ? ' · ' + it.year : ''}`} />)}
           </Rail>
         </View>
 
         <View style={{ marginTop: 56 }} onLayout={e => { sectionY.popular = e.nativeEvent.layout.y }}>
           <Rail title="Paling Populer" icon={<Ic.flame color={C.primary2} />} wide>
-            {!catalog
+            {!top.length
               ? <SkeletonRail n={5} wide />
-              : catalog.slice(0, 8).map((it, i) => (
-                  <RankCard key={it.url} item={it} i={i} provider={provider} onPick={onPick} />
-                ))}
+              : top.slice(0, 8).map((it, i) => <RankCard key={it.id} item={it} i={i} onPick={onPick} />)}
           </Rail>
         </View>
       </View>
@@ -397,7 +448,7 @@ function Rail({ title, icon, toolbar, children, wide }) {
   )
 }
 
-function Hero({ items, provider, onPick }) {
+function Hero({ items, onPick }) {
   const { desktop, width } = useBrk()
   const [idx, setIdx] = useState(0)
   const slides = items.slice(0, 6)
@@ -446,7 +497,7 @@ function Hero({ items, provider, onPick }) {
         <View style={s.heroText}>
           <View style={s.heroChip}>
             <View style={s.heroChipDot} />
-            <Text style={s.heroChipText}>{provider}</Text>
+            <Text style={s.heroChipText}>{it.score ? `★ ${it.score}` : 'AniList'}</Text>
           </View>
           <Text style={[s.heroTitle, { fontSize: titleSize, lineHeight: Math.round(titleSize * 1.08) }]} numberOfLines={2}>{it.title}</Text>
           {!!it.synopsis && <Text style={[s.heroSynopsis, desktop && { maxWidth: 364 }]} numberOfLines={3}>{it.synopsis}</Text>}
@@ -534,11 +585,11 @@ function GenreChips({ genres, active, onPick }) {
   )
 }
 
-function Card({ item, badge, sub, meta, i, onPick, provider, style }) {
+function Card({ item, badge, sub, meta, i, onPick, style }) {
   return (
     <Pressable style={[s.card, style]} onPress={() => onPick(item)}>
       <View style={s.cardPoster}>
-        <Poster item={item} provider={provider} />
+        <Poster item={item} />
         {badge && (
           <View style={s.epBadge}>
             <LinearGradient colors={[C.accent, C.accent2]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, Platform.OS === 'web' && { zIndex: -1 }]} />
@@ -569,22 +620,23 @@ function SkeletonRail({ n, wide }) {
   )
 }
 
-function RankCard({ item, i, onPick, provider }) {
+function RankCard({ item, i, onPick }) {
   return (
     <Pressable style={s.rankCard} onPress={() => onPick(item)}>
       <GradText style={s.popRank} size={26} center colors={[C.primary2, C.accent]} horizontal={false}>
         {String(i + 1).padStart(2, '0')}
       </GradText>
       <View style={s.popPoster}>
-        <Poster item={item} provider={provider} style={{ width: 64, height: 88, borderRadius: 10 }}>
+        <Poster item={item} style={{ width: 64, height: 88, borderRadius: 10 }}>
           <View style={s.popPlay}><Ic.play color={C.white} size={16} /></View>
         </Poster>
       </View>
       <View style={s.popBody}>
         <Text style={s.popTitle} numberOfLines={1}>{item.title}</Text>
-        {(item.ep || (item.genre || []).length > 0) && (
+        {(item.ep || (item.genres || item.genre || []).length > 0) && (
           <Text style={s.popMeta}>
-            {[item.ep ? `${item.ep} episode` : '', (item.genre || []).slice(0, 2).join(' · ')].filter(Boolean).join(' · ')}
+            {[item.ep ? `${item.ep} episode` : '', (item.genres || item.genre || []).slice(0, 2).join(' · '),
+              item.score ? `★ ${item.score}` : ''].filter(Boolean).join(' · ')}
           </Text>
         )}
       </View>
@@ -593,22 +645,8 @@ function RankCard({ item, i, onPick, provider }) {
   )
 }
 
-function Poster({ item, provider, style, children }) {
-  const [img, setImg] = useState(item.image || '')
-  const url = item.url
-
-  useEffect(() => {
-    if (img || _noPoster.has(url)) return
-    let alive = true
-    api.poster(url, provider)
-      .then(r => {
-        if (r.image) { if (alive) setImg(r.image) }
-        else _noPoster.add(url)
-      })
-      .catch(() => _noPoster.add(url))
-    return () => { alive = false }
-  }, [url, provider, img])
-
+function Poster({ item, style, children }) {
+  const img = item.image || ''
   if (img) {
     return (
       <View style={[s.poster, style]}>
@@ -688,18 +726,19 @@ function ResSelect({ options, value, onChange }) {
   )
 }
 
-function AnimeView({ anime, provider, onPlay, onDownload, onBack }) {
+function AnimeView({ anime, onPlay, onDownload, onBack }) {
   const { desktop, width } = useBrk()
   const [opts, setOpts] = useState(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
   const [sel, setSel] = useState({})
-  const { item, info, episodes } = anime
+  const item = anime.item || {}
+  const { info, episodes, provider } = anime
   const title = info.title || item.title
 
   const pick = async ep => {
     setBusy(true); setErr(null); setOpts(null)
-    try { setOpts({ ep, options: (await api.downloads(ep.url, '')).options }) }
+    try { setOpts({ ep, options: (await api.downloads(ep.url, provider)).options }) }
     catch (e) { setErr(e.message) }
     finally { setBusy(false) }
   }
@@ -737,18 +776,20 @@ function AnimeView({ anime, provider, onPlay, onDownload, onBack }) {
         <LinearGradient colors={[C.card, C.bg2]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, Platform.OS === 'web' && { zIndex: -1 }]} />
         <View style={[s.detailPosterWrap, desktop && { width: 220, alignItems: 'flex-start' }]}>
           <View style={[s.detailPoster, s.detailPosterPh, desktop && { width: 220, maxWidth: 220 }]}>
-            {info.image
-              ? <Image source={{ uri: info.image }} contentFit="cover" transition={300} style={StyleSheet.absoluteFill} />
+            {(item.image_full || item.image || info.image)
+              ? <Image source={{ uri: item.image_full || item.image || info.image }} contentFit="cover" transition={300} style={StyleSheet.absoluteFill} />
               : <Text style={s.detailPhText}>{title.slice(0, 2)}</Text>}
           </View>
         </View>
         <View style={{ flex: 1 }}>
           <View style={s.heroChip}><View style={s.heroChipDot} /><Text style={s.heroChipText}>{provider}</Text></View>
           <Text style={[s.detailTitle, { fontSize: Math.min(38.4, Math.max(25.6, width * 0.035)), lineHeight: Math.round(Math.min(38.4, Math.max(25.6, width * 0.035)) * 1.5) }]}>{title}</Text>
-          <Text style={s.detailSynopsis}>{info.synopsis || '—'}</Text>
+          <Text style={s.detailSynopsis}>{item.synopsis || info.synopsis || '—'}</Text>
           <View style={s.detailMeta}>
             <View style={s.pill}><Text style={s.pillText}>{episodes.length} episode</Text></View>
-            {(item.genre || []).map(g => <View key={g} style={s.pill}><Text style={s.pillText}>{g}</Text></View>)}
+            {(item.genres || item.genre || []).map(g => <View key={g} style={s.pill}><Text style={s.pillText}>{g}</Text></View>)}
+            {!!item.score && <View style={s.pill}><Text style={s.pillText}>★ {item.score}</Text></View>}
+            {!!item.year && <View style={s.pill}><Text style={s.pillText}>{item.year}</Text></View>}
           </View>
           <View style={s.detailActions}>
             <Btn primary disabled={!episodes.length} onPress={() => episodes[0] && pick(episodes[0])}
