@@ -88,20 +88,25 @@ val OPT_RES = Regex("^\\[(.+?)\\]\\s*(.*)$")
 fun optName(label: String) = OPT_RES.find(label)?.groupValues?.getOrNull(2)?.takeIf { it.isNotBlank() } ?: label
 
 val http = HttpClient(CIO) { install(ContentNegotiation) { json(kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }) } }
+// ponytail: renderer bisa di-override via env buat iGPU lawas/VM; SOFTWARE = low-end mode (animasi berat dimatiin)
+val RENDER_API: String = System.getenv("INDONIME_RENDER_API") ?: "DIRECT3D"
+val lowEnd: Boolean = RENDER_API == "SOFTWARE"
 enum class View { Home, Detail, Player }
 var serverProc: Process? = null
 
 fun main() {
     Thread.setDefaultUncaughtExceptionHandler { t, e -> println("KOTLIN-CRASH $t: $e"); e.printStackTrace() }
-    // ponytail: SEMUA jalur GPU crash senyap di VM; di hardware asli DIRECT3D jalan & jauh lebih mulus -> fallback SOFTWARE kalau crash
-    System.setProperty("skiko.renderApi", "DIRECT3D")
+    // ponytail: default DIRECT3D (GPU); iGPU lawas/VM -> INDONIME_RENDER_API=SOFTWARE; lowEnd = UI tanpa animasi berat buat renderer CPU
+    System.setProperty("skiko.renderApi", RENDER_API)
     application {
     Window(onCloseRequest = { serverProc?.destroyForcibly(); exitApplication() }, title = "Indonime", state = rememberWindowState(width = 1080.dp, height = 720.dp)) {
         MaterialTheme(colorScheme = darkColorScheme(background = Bg, onBackground = Fg, surface = Card, onSurface = Fg, primary = Primary, secondary = Primary2, error = Accent), typography = Typography(bodyLarge = TextStyle(fontFamily = BodyFont))) {
-            Box(Modifier.fillMaxSize().background(Bg).drawBehind {
+            // ponytail: gradient radial full-window mahal di SOFTWARE -> lowEnd skip
+            val grad = if (lowEnd) Modifier else Modifier.drawBehind {
                 drawRect(Brush.radialGradient(listOf(Primary.copy(0.14f), Color.Transparent), center = Offset(size.width * 0.8f, -size.height * 0.05f), radius = size.width * 0.55f))
                 drawRect(Brush.radialGradient(listOf(Accent.copy(0.08f), Color.Transparent), center = Offset(-size.width * 0.08f, size.height * 0.28f), radius = size.width * 0.42f))
-            }) { Root() }
+            }
+            Box(Modifier.fillMaxSize().background(Bg).then(grad)) { Root() }
         }
     }
 }
@@ -167,7 +172,7 @@ fun main() {
     RemoteImage(cover, mod) { Box(mod, contentAlignment = Alignment.Center) { Text(initials, color = Muted, fontSize = textSize, fontWeight = FontWeight.ExtraBold, fontFamily = HeadFont) } }
 }
 
-@Composable fun LogoMark() { Box(Modifier.size(34.dp).clip(SmR).background(Brush.linearGradient(listOf(Primary, Accent))).shadow(18.dp, SmR), contentAlignment = Alignment.Center) { Canvas(Modifier.size(16.dp)) { drawPath(Path().apply { moveTo(3f, 1f); lineTo(3f, 15f); lineTo(15f, 8f); close() }, Color.White, style = Fill) } } }
+@Composable fun LogoMark() { Box(Modifier.size(34.dp).clip(SmR).background(Brush.linearGradient(listOf(Primary, Accent))).shd(18.dp, SmR), contentAlignment = Alignment.Center) { Canvas(Modifier.size(16.dp)) { drawPath(Path().apply { moveTo(3f, 1f); lineTo(3f, 15f); lineTo(15f, 8f); close() }, Color.White, style = Fill) } } }
 @Composable fun LogoText() { Row { Text("INDO", color = Fg, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp, fontFamily = HeadFont); Text("NIME", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp, fontFamily = HeadFont, style = TextStyle(brush = Brush.horizontalGradient(listOf(Primary2, Accent)))) } }
 
 // ── SVG icons (ported 1:1 from ui/src/App.jsx Ic map, viewBox 24, stroke 2) ──
@@ -185,7 +190,7 @@ fun main() {
         Row(Modifier.height(64.dp).padding(horizontal = 20.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.clickable { onHome() }, verticalAlignment = Alignment.CenterVertically) { LogoMark(); Spacer(Modifier.width(10.dp)); LogoText() }
             Spacer(Modifier.width(16.dp))
-            Surface(shape = PillR, color = Card, border = BorderStroke(1.dp, Border)) { Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { providers.forEach { p -> val on = p == provider; Box(Modifier.clip(PillR).clickable { onProv(p) }.then(if (on) Modifier.background(Brush.linearGradient(listOf(Primary, Color(0xFF9D4EDD)))).shadow(12.dp, PillR) else Modifier).height(30.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) { Text(p, color = if (on) Color.White else FgDim, fontSize = 13.sp, fontWeight = FontWeight.Medium) } } } }
+            Surface(shape = PillR, color = Card, border = BorderStroke(1.dp, Border)) { Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { providers.forEach { p -> val on = p == provider; Box(Modifier.clip(PillR).clickable { onProv(p) }.then(if (on) Modifier.background(Brush.linearGradient(listOf(Primary, Color(0xFF9D4EDD)))).shd(12.dp, PillR) else Modifier).height(30.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) { Text(p, color = if (on) Color.White else FgDim, fontSize = 13.sp, fontWeight = FontWeight.Medium) } } } }
             Spacer(Modifier.weight(1f))
             Surface(shape = PillR, color = Card, border = BorderStroke(1.dp, Border), modifier = Modifier.width(360.dp)) { Row(Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) { BasicTextField(value = query, onValueChange = onQ, textStyle = TextStyle(color = Fg, fontSize = 14.sp), cursorBrush = SolidColor(Primary), singleLine = true, modifier = Modifier.weight(1f).onPreviewKeyEvent { e: androidx.compose.ui.input.key.KeyEvent -> if (e.type == KeyEventType.KeyUp && e.key == Key.Enter) { onSearch(); true } else false }); Spacer(Modifier.width(4.dp)); Box(Modifier.size(32.dp).clip(CircleShape).background(Card2).clickable { onSearch() }, contentAlignment = Alignment.Center) { Canvas(Modifier.size(18.dp)) { drawCircle(Color.Transparent); drawCircle(FgDim, 5.5f, style = Stroke(1.5f), center = Offset(size.width * 0.46f, size.height * 0.46f)); drawLine(FgDim, Offset(size.width * 0.68f, size.height * 0.68f), Offset(size.width * 0.9f, size.height * 0.9f), 1.5f, cap = StrokeCap.Round) } } } }
         }
@@ -197,26 +202,29 @@ fun main() {
     var genre by remember { mutableStateOf("Semua") }
     val genres = remember(catalog) { listOf("Semua") + (catalog ?: emptyList()).flatMap { it.genre ?: emptyList() }.distinct() }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 64.dp)) {
-        if (results != null) { SectionTitle("Hasil untuk \"$query\"") { SearchIco() }; if (results.isEmpty()) Text("Tidak ada hasil.", color = FgDim, modifier = Modifier.padding(start = 20.dp)); else LazyRow(railPad()) { items(results) { CardItem(Modifier.animateItem(fadeInSpec = tween(400)), it, provider, onPick) } }; return }
+        if (results != null) { SectionTitle("Hasil untuk \"$query\"") { SearchIco() }; if (results.isEmpty()) Text("Tidak ada hasil.", color = FgDim, modifier = Modifier.padding(start = 20.dp)); else LazyRow(railPad()) { items(results) { CardItem((if (lowEnd) Modifier else Modifier.animateItem(fadeInSpec = tween(400))), it, provider, onPick) } }; return }
         if (featured.isNotEmpty()) Hero(featured, provider, onPick)
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) { StatBox(catalog?.size?.toString() ?: "—", "Judul anime", Modifier.weight(1f)); StatBox("4K", "Kualitas stream", Modifier.weight(1f)); StatBox("24/7", "Update episode", Modifier.weight(1f)) }
         SectionTitle("Rilis Terbaru") { ClockIco() }
         if (genres.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { genres.forEach { g -> Chip(g, g == genre) { genre = g } } }
-        if (latest == null) SkeletonRow() else LazyRow(railPad()) { items(latest.filter { genre == "Semua" || (it.genre ?: emptyList()).contains(genre) }) { CardItem(Modifier.animateItem(fadeInSpec = tween(400)), it, provider, onPick) } }
-        Spacer(Modifier.height(48.dp)); SectionTitle("Paling Populer") { FlameIco() }; if (catalog == null) SkeletonRow(wide = true) else LazyRow(railPad()) { items(catalog.take(8).mapIndexed { i, c -> i to c }) { (r, c) -> RankItem(Modifier.animateItem(fadeInSpec = tween(400)), r, c, provider, onPick) } }
+        if (latest == null) SkeletonRow() else LazyRow(railPad()) { items(latest.filter { genre == "Semua" || (it.genre ?: emptyList()).contains(genre) }) { CardItem((if (lowEnd) Modifier else Modifier.animateItem(fadeInSpec = tween(400))), it, provider, onPick) } }
+        Spacer(Modifier.height(48.dp)); SectionTitle("Paling Populer") { FlameIco() }; if (catalog == null) SkeletonRow(wide = true) else LazyRow(railPad()) { items(catalog.take(8).mapIndexed { i, c -> i to c }) { (r, c) -> RankItem((if (lowEnd) Modifier else Modifier.animateItem(fadeInSpec = tween(400))), r, c, provider, onPick) } }
     }
 }
 
 @Composable fun Hero(items: List<CI>, provider: String, onPick: (CI) -> Unit) {
     var idx by remember { mutableIntStateOf(0) }; val n = items.size.coerceAtMost(6); if (n == 0) return
-    LaunchedEffect(n) { while (true) { delay(6000); idx = (idx + 1) % n } }; val it = items[idx]
+    LaunchedEffect(n) { if (!lowEnd) while (true) { delay(6000); idx = (idx + 1) % n } }; val it = items[idx]
     Box(Modifier.fillMaxWidth().height(560.dp).background(Bg2)) {
-        RemoteImage(it.image_full ?: it.image, Modifier.fillMaxSize(), fallback = {})
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Bg.copy(0.92f), Bg.copy(0.6f), Bg.copy(0.25f)))))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Bg, Color.Transparent))))
+        // ponytail: blur 28dp biar cover low-res gak keliatan pixel (parity App.jsx:349); lowEnd skip (software renderer berat)
+        if (lowEnd) RemoteImage(it.image_full ?: it.image, Modifier.fillMaxSize(), fallback = {})
+        else RemoteImage(it.image_full ?: it.image, Modifier.fillMaxSize().blur(28.dp), fallback = {})
+        // ponytail: 2 lapis gradient full-window mahal di SOFTWARE -> lowEnd solven satu box semi-transparan
+        if (lowEnd) Box(Modifier.fillMaxSize().background(Bg.copy(0.66f)))
+        else { Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Bg.copy(0.92f), Bg.copy(0.6f), Bg.copy(0.25f))))); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Bg, Color.Transparent)))) }
         Row(Modifier.fillMaxSize().padding(start = 20.dp, top = 48.dp, end = 20.dp, bottom = 88.dp).widthIn(max = 1080.dp), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f).widthIn(max = 620.dp)) {
-                Surface(shape = PillR, color = Primary.copy(0.14f), border = BorderStroke(1.dp, Primary2.copy(0.3f))) { Row(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(8.dp).clip(CircleShape).background(Green).shadow(8.dp, CircleShape)); Spacer(Modifier.width(8.dp)); Text(provider, color = Primary2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp) } }
+                Surface(shape = PillR, color = Primary.copy(0.14f), border = BorderStroke(1.dp, Primary2.copy(0.3f))) { Row(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(8.dp).clip(CircleShape).background(Green).shd(8.dp, CircleShape)); Spacer(Modifier.width(8.dp)); Text(provider, color = Primary2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp) } }
                 Spacer(Modifier.height(16.dp)); Text(it.title, color = Fg, fontSize = 52.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 56.sp, letterSpacing = (-0.5).sp, maxLines = 2, overflow = TextOverflow.Ellipsis, fontFamily = HeadFont)
                 it.synopsis?.let { s -> Spacer(Modifier.height(12.dp)); Text(s, color = FgDim, fontSize = 16.sp, lineHeight = 24.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) }
                 Spacer(Modifier.height(24.dp)); Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { PrimaryBtn("Lihat Detail", icon = { PlayIco(20.dp) }) { onPick(it) }; if (it.ep != null) GhostBtn("Episode ${it.ep}", icon = { ClockIco(16.dp) }) { onPick(it) } }
@@ -230,15 +238,17 @@ fun main() {
     }
 }
 
-@Composable fun PrimaryBtn(text: String, icon: (@Composable () -> Unit)? = null, onClick: () -> Unit) { Box(Modifier.clip(PillR).background(Brush.linearGradient(listOf(Primary, Color(0xFF9D4EDD)))).shadow(24.dp, PillR).clickable(onClick = onClick).height(46.dp).padding(horizontal = 22.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { icon?.let { it(); Spacer(Modifier.width(8.dp)) }; Text(text, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) } } }
+@Composable fun PrimaryBtn(text: String, icon: (@Composable () -> Unit)? = null, onClick: () -> Unit) { Box(Modifier.clip(PillR).background(Brush.linearGradient(listOf(Primary, Color(0xFF9D4EDD)))).shd(24.dp, PillR).clickable(onClick = onClick).height(46.dp).padding(horizontal = 22.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { icon?.let { it(); Spacer(Modifier.width(8.dp)) }; Text(text, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) } } }
 @Composable fun GhostBtn(text: String, icon: (@Composable () -> Unit)? = null, onClick: () -> Unit) { Box(Modifier.clip(PillR).background(Color.White.copy(0.06f)).border(1.dp, Border, PillR).clickable(onClick = onClick).height(46.dp).padding(horizontal = 22.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { icon?.let { it(); Spacer(Modifier.width(8.dp)) }; Text(text, color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) } } }
 
 fun railPad() = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+// ponytail: shadow blur mahal di SOFTWARE renderer -> lowEnd no-op, border aja yang nahan
+fun Modifier.shd(radius: Dp, shape: Shape) = if (lowEnd) this else this.shadow(radius, shape)
 @Composable fun SectionTitle(text: String, icon: (@Composable () -> Unit)? = null) { Row(Modifier.fillMaxWidth().padding(start = 20.dp, top = 28.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) { if (icon != null) { Box(Modifier.size(34.dp).clip(SmR).background(Primary.copy(0.14f)).border(1.dp, Primary2.copy(0.25f), SmR), contentAlignment = Alignment.Center) { icon() }; Spacer(Modifier.width(10.dp)) }; Text(text, color = Fg, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp, fontFamily = HeadFont); Spacer(Modifier.width(8.dp)); Box(Modifier.weight(1f).height(1.dp).background(Brush.horizontalGradient(listOf(Border, Color.Transparent)))) } }
 @Composable fun StatBox(v: String, l: String, mod: Modifier = Modifier) { Column(mod.clip(CardR).background(Brush.linearGradient(listOf(Card, Bg2))).border(1.dp, Border, CardR).padding(18.dp, 22.dp)) { Text(v, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, fontFamily = HeadFont, style = TextStyle(brush = Brush.horizontalGradient(listOf(Primary2, Accent)))); Spacer(Modifier.height(2.dp)); Text(l, color = Muted, fontSize = 13.sp) } }
 @Composable fun CardItem(modifier: Modifier = Modifier, item: CI, provider: String, onPick: (CI) -> Unit) {
     val hov = remember { MutableInteractionSource() }; val hovered by hov.collectIsHoveredAsState()
-    val sc by animateFloatAsState(if (hovered) 1.07f else 1f, label = "scale")
+    val sc = if (lowEnd) 1f else animateFloatAsState(if (hovered) 1.07f else 1f, label = "scale").value
     Column(modifier.width(165.dp).clickable { onPick(item) }.padding(end = 18.dp)) {
         Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).hoverable(hov).graphicsLayer { scaleX = sc; scaleY = sc; transformOrigin = TransformOrigin.Center }.clip(CardR).background(Card).border(1.dp, Border, CardR)) { PosterBox(item.url, item.image, provider, Modifier.fillMaxSize(), item.title.take(2).uppercase()) }
         Column(Modifier.padding(top = 10.dp, start = 4.dp, end = 4.dp)) { Text(item.title, color = if (hovered) Primary2 else Fg, fontSize = 14.sp, fontWeight = FontWeight.Medium, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis); item.ep?.let { Text(it, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)) } }
@@ -246,7 +256,7 @@ fun railPad() = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
 }
 @Composable fun RankItem(modifier: Modifier = Modifier, rank: Int, item: CI, provider: String, onPick: (CI) -> Unit) {
     val hov = remember { MutableInteractionSource() }; val hovered by hov.collectIsHoveredAsState()
-    val ty by animateFloatAsState(if (hovered) -2f else 0f, label = "lift")
+    val ty = if (lowEnd) 0f else animateFloatAsState(if (hovered) -2f else 0f, label = "lift").value
     Row(modifier.width(340.dp).padding(end = 18.dp).clip(CardR).background(if (hovered) Card2 else Card).border(1.dp, if (hovered) Primary2.copy(0.35f) else Border, CardR).hoverable(hov).graphicsLayer { translationY = ty }.clickable { onPick(item) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(String.format("%02d", rank + 1), fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, fontFamily = HeadFont, style = TextStyle(brush = Brush.verticalGradient(listOf(Primary2, Accent))), modifier = Modifier.width(40.dp), textAlign = TextAlign.Center)
         PosterBox(item.url, item.image, provider, Modifier.size(64.dp, 88.dp).clip(SmR).background(Card).border(1.dp, Border, SmR), item.title.take(2).uppercase(), 16.sp)
@@ -262,7 +272,7 @@ fun railPad() = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.linearGradient(listOf(Card, Bg2))).border(1.dp, Border, RoundedCornerShape(20.dp)).padding(24.dp)) {
             PosterBox(info.url, info.image, provider, Modifier.width(220.dp).aspectRatio(2f / 3f).clip(CardR).background(Card).border(1.dp, Border, CardR), info.title.take(2).uppercase(), 28.sp)
             Spacer(Modifier.width(28.dp)); Column(Modifier.weight(1f)) {
-                Surface(shape = PillR, color = Primary.copy(0.14f), border = BorderStroke(1.dp, Primary2.copy(0.25f))) { Row(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(8.dp).clip(CircleShape).background(Green).shadow(8.dp, CircleShape)); Spacer(Modifier.width(8.dp)); Text(provider, color = Primary2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp) } }
+                Surface(shape = PillR, color = Primary.copy(0.14f), border = BorderStroke(1.dp, Primary2.copy(0.25f))) { Row(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(8.dp).clip(CircleShape).background(Green).shd(8.dp, CircleShape)); Spacer(Modifier.width(8.dp)); Text(provider, color = Primary2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp) } }
                 Spacer(Modifier.height(14.dp)); Text(info.title, color = Fg, fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 40.sp, letterSpacing = (-0.4).sp, maxLines = 2, overflow = TextOverflow.Ellipsis, fontFamily = HeadFont)
                 Spacer(Modifier.height(10.dp)); Text(info.synopsis ?: "—", color = FgDim, fontSize = 14.sp, lineHeight = 20.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(16.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { PillChip("${episodes.size} episode"); (info.genre ?: emptyList()).take(2).forEach { g -> PillChip(g) } }
@@ -273,7 +283,7 @@ fun railPad() = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             episodes.forEachIndexed { i, ep ->
                 val hov = remember { MutableInteractionSource() }; val hovered by hov.collectIsHoveredAsState()
-                val tx by animateFloatAsState(if (hovered) 3f else 0f, label = "shift")
+                val tx = if (lowEnd) 0f else animateFloatAsState(if (hovered) 3f else 0f, label = "shift").value
                 Row(Modifier.fillMaxWidth().graphicsLayer { translationX = tx }.clip(SmR).background(if (hovered) Card2 else Card).border(1.dp, if (hovered) Primary2.copy(0.35f) else Border, SmR).hoverable(hov).clickable { onPickEp(ep) }.padding(12.dp, 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(String.format("%02d", i + 1), color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = HeadFont, modifier = Modifier.width(32.dp))
                     Text(ep.title, color = Fg, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -285,7 +295,7 @@ fun railPad() = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
     }
 }
 @Composable fun PillChip(text: String) { Surface(shape = PillR, color = Primary.copy(0.12f), border = BorderStroke(1.dp, Primary2.copy(0.25f))) { Text(text, color = Primary2, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp)) } }
-@Composable fun Chip(text: String, on: Boolean, onClick: () -> Unit) { Box(Modifier.clip(PillR).background(if (on) Brush.linearGradient(listOf(Primary, Color(0xFF9D4EDD))) else SolidColor(Card)).border(1.dp, if (on) Color.Transparent else Border, PillR).shadow(if (on) 16.dp else 0.dp, PillR).clickable(onClick = onClick).height(36.dp).padding(horizontal = 18.dp), contentAlignment = Alignment.Center) { Text(text, color = if (on) Color.White else FgDim, fontSize = 13.sp, fontWeight = FontWeight.Medium) } }
+@Composable fun Chip(text: String, on: Boolean, onClick: () -> Unit) { Box(Modifier.clip(PillR).background(if (on) Brush.linearGradient(listOf(Primary, Color(0xFF9D4EDD))) else SolidColor(Card)).border(1.dp, if (on) Color.Transparent else Border, PillR).shd(if (on) 16.dp else 0.dp, PillR).clickable(onClick = onClick).height(36.dp).padding(horizontal = 18.dp), contentAlignment = Alignment.Center) { Text(text, color = if (on) Color.White else FgDim, fontSize = 13.sp, fontWeight = FontWeight.Medium) } }
 
 @Composable fun DownIco(sz: Dp = 16.dp, tint: Color = Fg) { Canvas(Modifier.size(sz)) { val u = sz.toPx() / 24f; drawLine(tint, Offset(12f*u, 3f*u), Offset(12f*u, 15f*u), 2f*u, cap = StrokeCap.Round); drawPath(Path().apply { moveTo(7f*u, 11f*u); lineTo(12f*u, 16f*u); lineTo(17f*u, 11f*u) }, tint, style = Stroke(2f*u, cap = StrokeCap.Round, join = StrokeJoin.Round)); drawLine(tint, Offset(4f*u, 21f*u), Offset(20f*u, 21f*u), 2f*u, cap = StrokeCap.Round) } }
 
@@ -308,7 +318,7 @@ fun railPad() = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
         m.map { it.key to it.value }
     }
     Box(Modifier.fillMaxSize().background(Bg.copy(0.7f)), contentAlignment = Alignment.Center) {
-        Column(Modifier.fillMaxWidth().padding(20.dp).widthIn(max = 520.dp).clip(CardR).background(Card).border(1.dp, Border, CardR).shadow(30.dp, CardR).padding(20.dp)) {
+        Column(Modifier.fillMaxWidth().padding(20.dp).widthIn(max = 520.dp).clip(CardR).background(Card).border(1.dp, Border, CardR).shd(30.dp, CardR).padding(20.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(ep.title, color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, fontFamily = HeadFont, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Box(Modifier.size(40.dp).clip(CircleShape).clickable { onClose() }, contentAlignment = Alignment.Center) { XIco(16.dp, FgDim) }
@@ -324,7 +334,7 @@ fun railPad() = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                         ResSelect(list, cur, { onPick(res, it.url) }, Modifier.weight(1f))
                         Spacer(Modifier.width(10.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(Modifier.height(38.dp).clip(PillR).background(Brush.linearGradient(listOf(Accent, Color(0xFFE11D48)))).shadow(16.dp, PillR).clickable { onPlay(cur) }.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { PlayIco(14.dp); Spacer(Modifier.width(6.dp)); Text("Play", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) } }
+                            Box(Modifier.height(38.dp).clip(PillR).background(Brush.linearGradient(listOf(Accent, Color(0xFFE11D48)))).shd(16.dp, PillR).clickable { onPlay(cur) }.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { PlayIco(14.dp); Spacer(Modifier.width(6.dp)); Text("Play", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) } }
                             Box(Modifier.height(38.dp).clip(PillR).background(Color.White.copy(0.06f)).border(1.dp, Border, PillR).clickable { onDownload(cur) }.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) { Row(verticalAlignment = Alignment.CenterVertically) { DownIco(14.dp, Fg); Spacer(Modifier.width(6.dp)); Text("Download", color = Fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) } }
                         }
                     }
