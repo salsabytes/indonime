@@ -108,11 +108,11 @@ export default function App() {
 
   const pickCandidate = (prov, url) => openDetail(null, prov, url)
 
-  const handlePlay = async url => {
+  const handlePlay = async (url, label) => {
     // Langsung pindah ke halaman nonton — loading resolve stream di player.
     setView('player'); setStream(null); setStreamError(null)
     try {
-      const r = await api.play(url)
+      const r = await api.play(url, label)
       if (r.stream) setStream(r.stream)
       else setStreamError(r.error || 'Gagal memutar')
     } catch (err) { setStreamError(err.message) }
@@ -652,7 +652,7 @@ function AnimeView({ anime, onPlay, onDownload, onBack }) {
                     <ResSelect options={g.options} value={cur}
                                onChange={v => setSel(s => ({ ...s, [g.res]: v }))} />
                     <div className="opt-btns">
-                      <button className="btn play" onClick={() => onPlay(cur)}>{Ic.playLg} Play</button>
+                      <button className="btn play" onClick={() => onPlay(cur, picked.label)}>{Ic.playLg} Play</button>
                       <button className="btn ghost" onClick={() => onDownload({ url: cur, label: picked.label }, opts.ep)}>{Ic.down} Download</button>
                     </div>
                   </div>

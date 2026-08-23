@@ -36,7 +36,7 @@ export const api = {
   info: (u, p) => get(`/api/info?url=${encodeURIComponent(u)}&provider=${p}`),
   episodes: (u, p) => get(`/api/episodes?url=${encodeURIComponent(u)}&provider=${p}`),
   downloads: (u, p) => get(`/api/downloads?url=${encodeURIComponent(u)}&provider=${p}`),
-  play: u => post('/api/play', { server_url: u }),
+  play: (u, l) => post('/api/play', { server_url: u, label: l }),
   download: (u, t) => post('/api/download', { server_url: u, title: t }),
   jobs: () => get('/api/jobs'),
 }

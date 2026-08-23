@@ -355,6 +355,15 @@ class _Handler(BaseHTTPRequestHandler):
     path, stop, dl_thread, file_size, _ = (
       info['path'], info['stop'], info['thread'], info['file_size'], info['ts'])
     done = not dl_thread.is_alive()
+    # Downloader mati duluan + file belum penuh = terpotong. Serve file potong
+    # → browser "file is corrupt" pas play nembus batas data. Tolak bersih:
+    # user retry (MEGA sering -3/-8 transient), bukan corrupt.
+    try:
+      truncated = done and os.path.getsize(path) < file_size
+    except OSError:
+      truncated = True
+    if truncated:
+      return self._json(502, {'error': 'Download Mega terputus — coba lagi.'})
     range_header = self.headers.get('Range')
     if range_header and range_header.startswith('bytes='):
       parts = range_header[6:].split('-')

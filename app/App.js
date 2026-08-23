@@ -145,11 +145,11 @@ function AppInner() {
 
   const pickCandidate = (prov, url) => openDetail(null, prov, url)
 
-  const handlePlay = async url => {
+  const handlePlay = async (url, label) => {
     // Langsung pindah ke halaman nonton — loading resolve stream di player.
     setView('player'); setStream(null); setStreamError(null); scrollTop()
     try {
-      const r = await api.play(url)
+      const r = await api.play(url, label)
       if (r.stream) setStream(r.stream)
       else setStreamError(r.error || 'Gagal memutar')
     } catch (err) { setStreamError(err.message) }
@@ -844,7 +844,7 @@ function AnimeView({ anime, onPlay, onDownload, onBack }) {
                       <Text style={s.optGroupTitle}>{g.res}</Text>
                       <ResSelect options={g.options} value={cur} onChange={v => setSel(prev => ({ ...prev, [g.res]: v }))} />
                       <View style={[s.optBtns, !desktop && { width: '100%' }]}>
-                        <Btn play small onPress={() => onPlay(cur)} icon={<Ic.playLg color={C.white} size={16} />}>Play</Btn>
+                        <Btn play small onPress={() => onPlay(cur, picked.label)} icon={<Ic.playLg color={C.white} size={16} />}>Play</Btn>
                         <Btn ghost small onPress={() => onDownload({ url: cur, label: picked.label }, opts.ep)} icon={<Ic.down color={C.fg} size={16} />}>Download</Btn>
                       </View>
                     </View>
