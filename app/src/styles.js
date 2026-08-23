@@ -148,7 +148,7 @@ export const s = StyleSheet.create({
   chipOnText: { fontFamily: F.bodyMed, fontSize: 13, color: C.white },
 
   // ── Cards & grids ─────────────────────────────────────
-  grid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 18, columnGap: 12 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 18, columnGap: 12, marginTop: 16 },
   card: {},
   cardPoster: { position: 'relative' },
   epBadge: {

@@ -539,6 +539,7 @@ section + section { margin-top: 56px; }
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 18px;
+  margin-top: 16px; /* pisah dari SectionTitle, match .section-head */
 }
 
 .card {
