@@ -90,6 +90,11 @@ def search(query, n=8):
   return _get({'perPage': n, 'search': query, 'sort': ['SEARCH_MATCH']}, n)
 
 
+@cached(ttl=86400)
+def browse(sort='POPULARITY_DESC', n=50):
+  return _get({'perPage': n, 'sort': [sort]}, n)
+
+
 # Subset genre umum yang ada di AniList genre taxonomy (populer di Indonesia).
 GENRES = ['Action', 'Adventure', 'Comedy', 'Drama', 'Fantasy', 'Romance',
           'Sci-Fi', 'Shounen', 'Slice of Life', 'Supernatural', 'Sports',

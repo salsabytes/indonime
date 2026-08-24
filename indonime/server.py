@@ -238,6 +238,16 @@ class _Handler(BaseHTTPRequestHandler):
       if not items:
         items = _load_plugin('anoboy').latest()
       return self._json(200, {'items': items})
+    if tab == 'alpha':
+      sort_map = {
+        'alpha': 'TITLE_ROMAJI',
+        'alpha_desc': 'TITLE_ROMAJI_DESC',
+        'latest': 'START_DATE_DESC',
+        'rating': 'SCORE_DESC',
+        'popular': 'POPULARITY_DESC',
+      }
+      sort = sort_map.get(q('sort', 'popular'), 'POPULARITY_DESC')
+      return self._json(200, {'items': discovery.browse(sort, 50)})
     if tab == 'genres':
       return self._json(200, {'genres': discovery.GENRES})
     return self._json(400, {'error': f'unknown tab: {tab}'})

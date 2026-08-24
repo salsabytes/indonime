@@ -1099,6 +1099,58 @@ section + section { margin-top: 56px; }
 .hint.center { text-align: center; padding: 40px 0; }
 .hint.center.bad { color: var(--accent); }
 
+/* ── Alpha grid ───────────────────────────────────────── */
+
+.alpha-section { margin-top: 56px; }
+
+.alpha-expand {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--fg-dim);
+  background: var(--card);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  transition: background 0.2s, color 0.2s;
+}
+
+.alpha-expand:hover { background: var(--card-2); color: var(--fg); }
+
+.alpha-arrow {
+  display: inline-block;
+  transition: transform 0.25s ease;
+}
+
+.alpha-arrow.open { transform: rotate(90deg); }
+
+.alpha-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+  scrollbar-width: none;
+}
+
+.alpha-chips::-webkit-scrollbar { display: none; }
+
+.alpha-grid-wrap {
+  position: relative;
+  transition: max-height 0.35s ease;
+}
+
+.alpha-fade {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  background: linear-gradient(0deg, var(--bg) 10%, transparent);
+  pointer-events: none;
+}
+
 /* ── Footer ─────────────────────────────────────────────── */
 
 .footer {

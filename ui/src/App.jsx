@@ -280,6 +280,8 @@ function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItem
               : top.slice(0, 8).map((it, i) => <RankCard key={it.id} item={it} i={i} onPick={onPick} />)}
           </Rail>
         </section>
+
+        <AlphaGrid onPick={onPick} />
       </div>
     </>
   )
@@ -496,6 +498,89 @@ function useInView(ref) {
     return () => ob.disconnect()
   }, [])
   return inView
+}
+
+/* ── Browse grid (sort options) ─────────────────────────── */
+
+const SORT_MODES = [
+  { key: 'popular',  label: 'Paling Populer' },
+  { key: 'rating',   label: 'Rating Tertinggi' },
+  { key: 'latest',   label: 'Terbaru' },
+  { key: 'alpha',    label: 'A → Z' },
+  { key: 'alpha_desc', label: 'Z → A' },
+]
+
+function AlphaGrid({ onPick }) {
+  const [sort, setSort] = useState('popular')
+  const [items, setItems] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const gridRef = useRef(null)
+  const [rowH, setRowH] = useState(0)
+
+  useEffect(() => {
+    let alive = true
+    setItems(null); setLoading(true)
+    api.discover('alpha', 'sort=' + sort)
+      .then(r => { if (alive) setItems(r.items) })
+      .catch(() => {})
+      .finally(() => alive && setLoading(false))
+    return () => { alive = false }
+  }, [sort])
+
+  // measure row height
+  useEffect(() => {
+    if (!items || items.length < 2 || !gridRef.current) return
+    const ch = gridRef.current.children
+    let h = 0
+    for (let i = 1; i < ch.length && !h; i++) {
+      if (ch[i].offsetTop > ch[0].offsetTop) h = ch[i].offsetTop - ch[0].offsetTop
+    }
+    if (h > 0) setRowH(h)
+  }, [items])
+
+  const ROWS = 3
+  const maxH = expanded || !rowH ? 0 : rowH * ROWS
+
+  return (
+    <section className="alpha-section" aria-labelledby="alpha-title">
+      <div className="section-head">
+        <button className="alpha-expand" onClick={() => setExpanded(e => !e)}
+                aria-label={expanded ? 'Tutup daftar' : 'Buka semua'}
+                aria-expanded={expanded}>
+          <span className={`alpha-arrow${expanded ? ' open' : ''}`}>{Ic.chev}</span>
+        </button>
+        <SectionTitle id="alpha-title" icon={Ic.star}>Daftar Anime</SectionTitle>
+      </div>
+      <div className="alpha-chips" role="list" aria-label="Urutkan">
+        {SORT_MODES.map(m => (
+          <button key={m.key} role="listitem"
+                  className={`chip${m.key === sort ? ' on' : ''}`}
+                  aria-pressed={m.key === sort}
+                  onClick={() => { setSort(m.key); setExpanded(false) }}>{m.label}</button>
+        ))}
+      </div>
+      {loading
+        ? <p className="hint center"><span className="spinner" />Memuat…</p>
+        : !items || items.length === 0
+          ? <p className="hint center">Tidak ada data.</p>
+          : (
+            <div className="alpha-grid-wrap"
+                 style={maxH ? { maxHeight: maxH, overflow: 'hidden' } : undefined}>
+              <div className="grid" ref={gridRef}>
+                {items.map((it, i) => (
+                  <Card key={it.id} item={it} i={i} onPick={onPick}
+                        meta={`${it.score ? '★ ' + it.score : ''}${it.year ? ' · ' + it.year : ''}`} />
+                ))}
+              </div>
+              {!expanded && maxH > 0 && items.length > ROWS * 6 && (
+                <div className="alpha-fade" aria-hidden="true" />
+              )}
+            </div>
+          )
+      }
+    </section>
+  )
 }
 
 function Poster({ item }) {
@@ -722,7 +807,7 @@ function Footer() {
           <h3>Jelajah</h3>
           <a href="#latest-title">Rilis Terbaru</a>
           <a href="#popular-title">Paling Populer</a>
-          <a href="#">Daftar Anime</a>
+          <a href="#alpha-title">Daftar Anime</a>
         </nav>
         <nav aria-label="Bantuan">
           <h3>Bantuan</h3>
