@@ -547,6 +547,12 @@ section + section { margin-top: 56px; }
   animation: fade-up 0.5s ease both;
 }
 
+/* device kentang: skip layout/paint kartu di luar viewport */
+.grid > .card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
+}
+
 .card-poster { position: relative; display: block; }
 
 .ep-badge {

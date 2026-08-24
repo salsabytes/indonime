@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 
 const HERO_MS = 6000
@@ -438,7 +438,7 @@ function GenreChips({ genres, active, onPick }) {
   )
 }
 
-function Card({ item, badge, sub, meta, i, onPick }) {
+const Card = memo(function Card({ item, badge, sub, meta, i, onPick }) {
   return (
     <button className="card" onClick={() => onPick(item)}
             style={{ animationDelay: `${Math.min(i, 14) * 40}ms` }}>
@@ -453,7 +453,7 @@ function Card({ item, badge, sub, meta, i, onPick }) {
       </span>
     </button>
   )
-}
+})
 
 function SkeletonRail({ n, wide }) {
   return (
