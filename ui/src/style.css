@@ -1180,6 +1180,9 @@ section + section { margin-top: 56px; }
 .footer nav a { color: var(--muted); font-size: 14px; }
 .footer nav a:hover { color: var(--fg); }
 
+.link-btn { background: none; border: none; color: var(--muted); font-size: 14px; cursor: pointer; padding: 0; text-align: left; }
+.link-btn:hover { color: var(--fg); }
+
 .footer-copy {
   margin: 32px auto 0;
   max-width: 1200px;

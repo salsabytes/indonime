@@ -247,7 +247,8 @@ class _Handler(BaseHTTPRequestHandler):
         'popular': 'POPULARITY_DESC',
       }
       sort = sort_map.get(q('sort', 'popular'), 'POPULARITY_DESC')
-      return self._json(200, {'items': discovery.browse(sort, 50)})
+      page = int(q('page', '1'))
+      return self._json(200, {'items': discovery.browse(sort, 50, page)})
     if tab == 'genres':
       return self._json(200, {'genres': discovery.GENRES})
     return self._json(400, {'error': f'unknown tab: {tab}'})

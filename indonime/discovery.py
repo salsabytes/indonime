@@ -68,7 +68,7 @@ def _get(variables, take=24):
 
 @cached(ttl=86400)
 def top(n=24):
-  return _get({'perPage': n, 'sort': ['SCORE_DESC']}, n)
+  return _get({'perPage': n, 'sort': ['POPULARITY_DESC']}, n)
 
 
 @cached(ttl=3600)
@@ -91,8 +91,8 @@ def search(query, n=8):
 
 
 @cached(ttl=86400)
-def browse(sort='POPULARITY_DESC', n=50):
-  return _get({'perPage': n, 'sort': [sort]}, n)
+def browse(sort='POPULARITY_DESC', n=50, page=1):
+  return _get({'page': page, 'perPage': n, 'sort': [sort]}, n)
 
 
 # Subset genre umum yang ada di AniList genre taxonomy (populer di Indonesia).

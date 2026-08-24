@@ -160,6 +160,12 @@ export default function App() {
         {view === 'player' && (
           <PlayerView stream={stream} error={streamError} onBack={() => setView('anime')} />
         )}
+        {view === 'list' && (
+          <div className="wrap page-pad">
+            <button className="btn ghost back" onClick={goHome}>{Ic.back} Kembali</button>
+            <AlphaGrid onPick={onPickResult} fullPage />
+          </div>
+        )}
       </main>
 
       {cands && (
@@ -184,7 +190,7 @@ export default function App() {
         </div>
       )}
 
-      {view === 'home' && <Footer />}
+      {view === 'home' && <Footer onNavigate={setView} />}
       {jobs.length > 0 && <JobToasts jobs={jobs} />}
     </div>
   )
@@ -510,25 +516,54 @@ const SORT_MODES = [
   { key: 'alpha_desc', label: 'Z → A' },
 ]
 
-function AlphaGrid({ onPick }) {
+function AlphaGrid({ onPick, fullPage }) {
   const [sort, setSort] = useState('popular')
   const [items, setItems] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
   const [expanded, setExpanded] = useState(false)
   const gridRef = useRef(null)
+  const sentinelRef = useRef(null)
   const [rowH, setRowH] = useState(0)
+
+  const PAGE_SIZE = 50
 
   useEffect(() => {
     let alive = true
-    setItems(null); setLoading(true)
-    api.discover('alpha', 'sort=' + sort)
-      .then(r => { if (alive) setItems(r.items) })
+    setItems(null); setLoading(true); setPage(1); setHasMore(true)
+    api.discover('alpha', 'sort=' + sort + '&page=1')
+      .then(r => { if (alive) { setItems(r.items); setHasMore(r.items.length >= PAGE_SIZE) } })
       .catch(() => {})
       .finally(() => alive && setLoading(false))
     return () => { alive = false }
   }, [sort])
 
-  // measure row height
+  useEffect(() => {
+    if (page <= 1 || loadingMore) return
+    let alive = true
+    setLoadingMore(true)
+    api.discover('alpha', 'sort=' + sort + '&page=' + page)
+      .then(r => {
+        if (!alive) return
+        setItems(prev => [...prev, ...r.items])
+        setHasMore(r.items.length >= PAGE_SIZE)
+      })
+      .catch(() => {})
+      .finally(() => alive && setLoadingMore(false))
+    return () => { alive = false }
+  }, [page, sort])
+
+  useEffect(() => {
+    if (!fullPage || !sentinelRef.current || !hasMore || loadingMore) return
+    const ob = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) setPage(p => p + 1)
+    }, { rootMargin: '200px' })
+    ob.observe(sentinelRef.current)
+    return () => ob.disconnect()
+  }, [fullPage, hasMore, loadingMore])
+
   useEffect(() => {
     if (!items || items.length < 2 || !gridRef.current) return
     const ch = gridRef.current.children
@@ -540,18 +575,20 @@ function AlphaGrid({ onPick }) {
   }, [items])
 
   const ROWS = 3
-  const maxH = expanded || !rowH ? 0 : rowH * ROWS
+  const maxH = fullPage || expanded || !rowH ? 0 : rowH * ROWS
 
   return (
     <section className="alpha-section" aria-labelledby="alpha-title">
-      <div className="section-head">
-        <button className="alpha-expand" onClick={() => setExpanded(e => !e)}
-                aria-label={expanded ? 'Tutup daftar' : 'Buka semua'}
-                aria-expanded={expanded}>
-          <span className={`alpha-arrow${expanded ? ' open' : ''}`}>{Ic.chev}</span>
-        </button>
-        <SectionTitle id="alpha-title" icon={Ic.star}>Daftar Anime</SectionTitle>
-      </div>
+      {!fullPage && (
+        <div className="section-head">
+          <button className="alpha-expand" onClick={() => setExpanded(e => !e)}
+                  aria-label={expanded ? 'Tutup daftar' : 'Buka semua'}
+                  aria-expanded={expanded}>
+            <span className={`alpha-arrow${expanded ? ' open' : ''}`}>{Ic.chev}</span>
+          </button>
+          <SectionTitle id="alpha-title" icon={Ic.star}>Daftar Anime</SectionTitle>
+        </div>
+      )}
       <div className="alpha-chips" role="list" aria-label="Urutkan">
         {SORT_MODES.map(m => (
           <button key={m.key} role="listitem"
@@ -579,10 +616,10 @@ function AlphaGrid({ onPick }) {
             </div>
           )
       }
+      {fullPage && hasMore && <div ref={sentinelRef} className="hint center" style={{ padding: 24 }}>{loadingMore && <span className="spinner" />}</div>}
     </section>
   )
 }
-
 function Poster({ item }) {
   const ref = useRef(null)
   const inView = useInView(ref)
@@ -792,7 +829,7 @@ function pct(j) {
   return j.total ? `${Math.round((j.done / j.total) * 100)}%` : '…'
 }
 
-function Footer() {
+function Footer({ onNavigate }) {
   return (
     <footer className="footer">
       <div className="wrap footer-grid">
@@ -807,7 +844,7 @@ function Footer() {
           <h3>Jelajah</h3>
           <a href="#latest-title">Rilis Terbaru</a>
           <a href="#popular-title">Paling Populer</a>
-          <a href="#alpha-title">Daftar Anime</a>
+          <button className="link-btn" onClick={() => onNavigate('list')}>Daftar Anime</button>
         </nav>
         <nav aria-label="Bantuan">
           <h3>Bantuan</h3>
