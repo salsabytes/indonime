@@ -1,6 +1,7 @@
 # MEGA stream decrypt — moov-first faststart rebuild + prefetch thread.
 import random
 import sys
+import time
 import base64
 import threading
 import queue
@@ -228,26 +229,61 @@ def _parse_mega_url(url):
     return None
 
 
-# MEGA API → (dl_link, file_size).
+# --- Anti IP-ban MEGA --------------------------------------------------------
+# MEGA blokir IP yang terlalu sering memanggil g.api.mega.co.nz (err -4 /
+# -14). Semua call dipaksa lewat satu pacer global (gap minimum antar-request)
+# dan hasil a:g di-cache per file_id — replay episode yang sama tidak
+# menyentuh API lagi.
+_API_GAP = 1.2     # detik minimal antar panggilan API (ponytail: nilai statis, naikkan kalau masih kena blok)
+_INFO_TTL = 600    # dl_link MEGA tetap valid berjam-jam; 10 menit aman untuk replay
+_pace_lock = threading.Lock()
+_next_ok = [0.0]
+_info_cache = {}   # file_id -> (saved_monotonic, dl_link, file_size)
+
+def _api_pace():
+  # Serialisasi sengaja: pemegang kunci tidur sampai gilirannya, jadi N thread
+  # sekalipun tetap berjarak >= _API_GAP dari panggilan sebelumnya.
+  with _pace_lock:
+    delay = _next_ok[0] - time.monotonic()
+    if delay > 0:
+      time.sleep(delay)
+    _next_ok[0] = time.monotonic() + _API_GAP
+
+_ERR_NAMES = {-1:"internal",-2:"invalid",-3:"retry",-4:"rate-limited",
+              -5:"denied",-6:"not found",-7:"inaccessible",-8:"quota",
+              -9:"bad key",-11:"logged out",-13:"expired",-14:"blocked"}
+
+# MEGA API → (dl_link, file_size). Backoff saat -3/-4 (server minta pelan);
+# cache hasil supaya pemutaran ulang file yang sama tidak memanggil API lagi.
+# (ponytail: tanpa single-flight — dua tab buka episode sama secara bersamaan
+# masih 2x call; jarang terjadi, tambahin kalau keluhan muncul.)
 def _fetch_file_info(file_id):
-  try:
-    seq = random.randint(0, 0xFFFFFFFF)
-    res = http_post_json(
-      f"https://g.api.mega.co.nz/cs?id={seq}",
-      [{"a": "g", "g": 1, "p": file_id}],
-      timeout=15,
-    )
+  hit = _info_cache.get(file_id)
+  if hit is not None and time.monotonic() - hit[0] < _INFO_TTL:
+    return hit[1], hit[2]
+  for attempt in range(3):
+    _api_pace()
+    try:
+      seq = random.randint(0, 0xFFFFFFFF)
+      res = http_post_json(
+        f"https://g.api.mega.co.nz/cs?id={seq}",
+        [{"a": "g", "g": 1, "p": file_id}],
+        timeout=15,
+      )
+    except Exception as e:
+      print(f"[mega] _fetch_file_info exception: {e}", file=sys.stderr)
+      return None
     if isinstance(res[0], int):
       err = res[0]
-      err_names = {-1:"internal",-2:"invalid",-3:"retry",-4:"rate-limited",
-                   -5:"denied",-6:"not found",-7:"inaccessible",-8:"quota",
-                   -9:"bad key",-11:"logged out",-13:"expired",-14:"blocked"}
-      print(f"[mega] API err {err} ({err_names.get(err,'?')})", file=sys.stderr)
+      print(f"[mega] API err {err} ({_ERR_NAMES.get(err,'?')})", file=sys.stderr)
+      if err in (-3, -4) and attempt < 2:
+        time.sleep((attempt + 1) * 3)  # 3s lalu 6s — kasih napas ke rate limiter
+        continue
       return None
-    return res[0]['g'], res[0]['s']
-  except Exception as e:
-    print(f"[mega] _fetch_file_info exception: {e}", file=sys.stderr)
-    return None
+    info = res[0]['g'], res[0]['s']
+    _info_cache[file_id] = (time.monotonic(), info[0], info[1])
+    return info
+  return None
 
 
 # Fill the chunk queue from the stream response (runs in a thread).
