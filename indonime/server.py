@@ -299,7 +299,7 @@ class _Handler(BaseHTTPRequestHandler):
           break
       except OSError:
         pass
-      if time.time() - t0 > 30:
+      if time.time() - t0 > 75:
         stop.set()
         return self._json(500, {'error': 'Timeout buffering Mega stream.'})
       time.sleep(0.3)
@@ -372,22 +372,29 @@ class _Handler(BaseHTTPRequestHandler):
     else:
       start = 0
       end = file_size
-    # Wait for data at the requested offset (max 8s)
+    # Wait for data at the requested offset — stall-based, generous. A 416
+    # while the file is still growing kills Chromium's media pipeline (gray
+    # video, no error) and makes mpv seek-fail → corrupt packets. Only 416
+    # when the offset is genuinely past EOF; otherwise close the connection
+    # silently on timeout so the client retries.
     avail = 0
-    for _ in range(27):
-      try:
-        avail = os.path.getsize(path)
-      except OSError:
-        avail = 0
-      if avail > start:
-        break
-      if done:
-        break
-      time.sleep(0.3)
+    if start < file_size:
+      t0 = time.time()
+      while True:
+        try:
+          avail = os.path.getsize(path)
+        except OSError:
+          avail = 0
+        done = not dl_thread.is_alive()
+        if avail > start or done or (time.time() - t0 > 60):
+          break
+        time.sleep(0.3)
     if avail <= start:
-      self.send_response(416)
-      self.send_header('Access-Control-Allow-Origin', '*')
-      self.end_headers()
+      if start >= file_size:
+        self.send_response(416)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+      # else: still growing and timed out — drop the connection; client retries
       return
     serve_end = min(end, avail)
     length = serve_end - start

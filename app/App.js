@@ -13,7 +13,7 @@ import Svg, { Defs, LinearGradient as SvgGrad, RadialGradient, Rect, Stop, Text 
 import { useFonts, Outfit_500Medium, Outfit_700Bold, Outfit_800ExtraBold } from '@expo-google-fonts/outfit'
 import { Rubik_400Regular, Rubik_500Medium, Rubik_600SemiBold } from '@expo-google-fonts/rubik'
 
-import { api } from './src/api'
+import { api, API_URL } from './src/api'
 import { Ic } from './src/icons'
 import { C, F } from './src/theme'
 import { s } from './src/styles'
@@ -150,7 +150,7 @@ function AppInner() {
     setView('player'); setStream(null); setStreamError(null); scrollTop()
     try {
       const r = await api.play(url, label)
-      if (r.stream) setStream(r.stream)
+      if (r.stream) setStream(r.stream.startsWith('http') ? r.stream : API_URL + r.stream)
       else setStreamError(r.error || 'Gagal memutar')
     } catch (err) { setStreamError(err.message) }
   }
