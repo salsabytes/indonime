@@ -57,6 +57,7 @@ export default function App() {
     e.preventDefault()
     const q = query.trim()
     if (!q) return setResults(null)
+    setView('home')  // search harus keluar dari halaman anime/player dulu
     setSearching(true)
     try { setResults((await api.discover('search', 'q=' + encodeURIComponent(q))).results) }
     catch (err) { setError(err.message) }

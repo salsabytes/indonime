@@ -89,6 +89,7 @@ function AppInner() {
   const submit = () => {
     const q = query.trim()
     if (!q) return setResults(null)
+    setView('home'); scrollTop()  // search harus keluar dari halaman anime/player dulu
     setSearching(true)
     api.discover('search', 'q=' + encodeURIComponent(q))
       .then(r => setResults(r.results))
