@@ -319,6 +319,56 @@ def _download_sequential(dl_link, k, iv, f, ready, stop, bytes_counter,
       break
   d.finalize()
 
+# After a full sequential download, move moov to front so Range playback works.
+# If moov is already at front (faststart) or file isn't MP4, this is a no-op.
+def _reorder_moov_to_front(path):
+  try:
+    with open(path, 'rb') as f:
+      data = f.read()
+  except OSError:
+    return
+  if len(data) < 16 or data[4:8] != b'ftyp':
+    return  # not MP4
+  # Walk top-level boxes to find mdat and moov positions.
+  i, n = 0, len(data)
+  mdat_start = moov_start = moov_size = 0
+  while i + 8 <= n:
+    sz = int.from_bytes(data[i:i + 4], 'big')
+    btype = data[i + 4:i + 8]
+    if sz == 1 and i + 16 <= n:
+      sz = int.from_bytes(data[i + 8:i + 16], 'big')
+    if sz < 8:
+      break
+    if btype == b'mdat':
+      mdat_start = i
+    if btype == b'moov':
+      moov_start = i
+      moov_size = sz
+    if i + sz > n:
+      break
+    i += sz
+  if not mdat_start or not moov_start or moov_size < 8:
+    return
+  moov_end = moov_start + moov_size
+  # moov already at front → faststart, nothing to do.
+  if moov_start < mdat_start:
+    return
+  # moov not at end of file → unexpected layout, skip reordering.
+  if moov_end < len(data):
+    return
+  delta = moov_size
+  # Build new file: pre-mdat boxes + moov (offsets patched) + mdat data.
+  reorder = bytearray()
+  reorder += data[:mdat_start]  # ftyp & friends
+  moov = bytearray(data[moov_start:moov_end])
+  _patch_moov(moov, 0, len(moov), delta)
+  reorder += moov
+  reorder += data[mdat_start:moov_start]  # original mdat data
+  reorder += data[moov_end:]
+  with open(path, 'wb') as f:
+    f.write(reorder)
+
+
 def resolve_mega_file_stream(url, file_id):
   parsed = _parse_mega_url(url)
   if parsed is None:
@@ -366,6 +416,8 @@ def resolve_mega_file_stream(url, file_id):
         # Fallback: sequential download+decrypt (original flow).
         _download_sequential(dl_link, k, iv, f, ready, stop, bytes_counter,
                              early_bytes, mkv_floor, _fmt)
+        if _fmt[0] == 'mp4':
+          _reorder_moov_to_front(temp_path)  # moov to front for Range playback
     except Exception as e:
       print(style(f"✘ Mega Stream Error: {e}", Palette.error))
       ready.set()
