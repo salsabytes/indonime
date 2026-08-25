@@ -20,10 +20,10 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-        "ios": "expo start --ios",
-        "web": "expo start --web",
-        "typecheck": "tsc --noEmit"
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit"
   },
   "overrides": {
     "uuid": "11.1.1"
