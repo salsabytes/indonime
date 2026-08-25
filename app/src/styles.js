@@ -224,9 +224,12 @@ export const s = StyleSheet.create({
   detailActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
 
   // ── Episode list ──────────────────────────────────────
-  eps: { gap: 8 },
+  // auto-fill grid: min card 260px, wrap otomatis di semua ukuran layar
+  // (desktop 4 kolom, tablet 2-3, HP 1) — pakai CSS, bukan hitung kolom manual
+  eps: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   ep: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
+    flexGrow: 1, flexBasis: 260, flexShrink: 1, minWidth: 0,
     paddingVertical: 12, paddingHorizontal: 16, borderRadius: R.sm,
     backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
   },
@@ -262,7 +265,7 @@ export const s = StyleSheet.create({
   },
   rselectText: { flex: 1, fontFamily: F.bodySemibold, fontSize: 13, color: C.fg },
   rselectBackdrop: { flex: 1, backgroundColor: 'rgba(15,15,35,0.5)', justifyContent: 'center', padding: 24 },
-  rselectSheet: { backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 6, overflow: 'hidden' },
+  rselectSheet: { backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 6, overflow: 'hidden', width: '100%', maxWidth: 420, alignSelf: 'center' },
   rselectItem: { paddingVertical: 12, paddingHorizontal: 12, borderRadius: 8 },
   rselectItemOn: { backgroundColor: 'rgba(124,58,237,0.16)' },
   rselectItemText: { fontFamily: F.bodyMed, fontSize: 13, color: C.fgDim },

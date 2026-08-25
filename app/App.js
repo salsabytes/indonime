@@ -760,9 +760,6 @@ function AnimeView({ anime, onPlay, onDownload, onBack }) {
     return [...map.entries()].map(([res, options]) => ({ res, options }))
   }, [pickList])
 
-  const epCols = desktop ? Math.max(1, Math.floor((Math.min(width, 1200) - 40 + 8) / 268)) : 1
-  const epW = epCols > 1 ? (Math.min(width, 1200) - 40 - 8 * (epCols - 1)) / epCols : null
-
   useEffect(() => {
     if (!opts) return
     const sub = BackHandler.addEventListener('hardwareBackPress', () => { setOpts(null); return true })
@@ -801,10 +798,10 @@ function AnimeView({ anime, onPlay, onDownload, onBack }) {
       </View>
 
       <SectionTitle>Episode</SectionTitle>
-      {/* eps web: auto-fill minmax(260px,1fr) gap 8 — mobile 1 kolom */}
-      <View style={[s.eps, desktop && { flexDirection: 'row', flexWrap: 'wrap' }]}>
+      {/* eps: auto-fill grid (flex-wrap, min 260px) — semua ukuran layar */}
+      <View style={s.eps}>
         {episodes.map((ep, i) => (
-          <Pressable key={ep.url} style={({ pressed }) => [s.ep, epW && { width: epW }, pressed && { backgroundColor: C.card2 }]} onPress={() => pick(ep)}>
+          <Pressable key={ep.url} style={({ pressed }) => [s.ep, pressed && { backgroundColor: C.card2 }]} onPress={() => pick(ep)}>
             <Text style={s.epNum}>{String(i + 1).padStart(2, '0')}</Text>
             <Text style={s.epTitle} numberOfLines={1}>{ep.title}</Text>
             <Ic.play color={C.muted} size={16} />
