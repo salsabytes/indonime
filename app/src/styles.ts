@@ -1,6 +1,7 @@
 // StyleSheet — port ui/src/style.css ke layout mobile (setara @media max-width:900px,
 // target utama RN: HP). Desktop-wide layout tdk relevan utk native.
 import { Platform, StyleSheet } from 'react-native'
+import type { TextStyle } from 'react-native'
 import { C, R, F } from './theme'
 
 export const s = StyleSheet.create({
@@ -53,10 +54,10 @@ export const s = StyleSheet.create({
     backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
     borderRadius: 999, paddingLeft: 16, paddingRight: 4, height: 40,
   },
-  // outlineStyle: hilangkan focus ring browser default di web (RNW bawa <input>)
+  // outlineStyle web: RN types cuma kenal solid/dotted/dashed — 'none' valid di CSS
   searchInput: {
     flex: 1, fontFamily: F.body, fontSize: 14, color: C.fg, paddingVertical: 0,
-    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : {}),
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' as unknown as TextStyle['outlineStyle'] } : {}),
   },
   searchBtn: {
     width: 32, height: 32, borderRadius: 16,

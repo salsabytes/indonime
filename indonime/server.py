@@ -34,8 +34,9 @@ _PLAY_CACHE = os.path.join(os.path.expanduser("~"), ".indonime", "play")
 _mega_streams = {}
 _mega_stream_seq = [0]
 _mega_stream_lock = threading.Lock()
-# ui/ lives at the repo root (dev) and at the PyInstaller bundle root (exe).
-_STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui", "dist")
+# ui/ (React web Vite) DIHAPUS — desktop GUI sekarang pakai RN web build dari `app/`
+# (react-native-web via expo export --platform web). ui/dist lama di-replace app/dist.
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "dist")
 
 _jobs = {}  # job_id → status dict (frontend polls /api/jobs)
 _jobs_lock = threading.Lock()
@@ -483,7 +484,7 @@ class _Handler(BaseHTTPRequestHandler):
     if not fp.startswith(root) or not os.path.isfile(fp):
       fp = os.path.join(root, 'index.html')
     if not os.path.isfile(fp):
-      return self._json(404, {'error': 'ui/dist belum di-build'})
+      return self._json(404, {'error': 'app/dist belum di-build'})
     ctype, _ = mimetypes.guess_type(fp)
     if not ctype or '\r' in ctype or '\n' in ctype:
       ctype = 'application/octet-stream'

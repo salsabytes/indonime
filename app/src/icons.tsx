@@ -1,11 +1,23 @@
 // Icon map — port 1:1 dari map `Ic` di ui/src/App.jsx, pakai react-native-svg.
 // Warna = prop `color` (pengganti currentColor), ukuran = prop `size` (default dari width web).
 // Stroke icons WAJIB stroke={color} — react-native-svg tidak kenal currentColor dari CSS.
+import type { ReactElement } from 'react'
 import Svg, { Circle, Path } from 'react-native-svg'
 
-const S = c => ({ fill: 'none', stroke: c, strokeWidth: 2, strokeLinecap: 'round' })
+export interface IconProps {
+  color: string
+  size?: number
+}
+export type Icon = (p: IconProps) => ReactElement
 
-export const Ic = {
+const S = (c: string) => ({
+  fill: 'none' as const,
+  stroke: c,
+  strokeWidth: 2,
+  strokeLinecap: 'round' as const,
+})
+
+export const Ic: Record<string, Icon> = {
   search: ({ color, size = 18 }) => (
     <Svg width={size} height={size} viewBox="0 0 24 24" {...S(color)}>
       <Circle cx={11} cy={11} r={7} />

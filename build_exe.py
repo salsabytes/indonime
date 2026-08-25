@@ -9,9 +9,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
-UI_DIST = Path("ui/dist")
+UI_DIST = Path("app/dist")
 if not (UI_DIST / "index.html").exists():
-  print("❌ ui/dist tidak ada. Build dulu: cd ui && npm install && npm run build")
+  print("❌ app/dist tidak ada. Build dulu: cd app && npx expo export --platform web")
   sys.exit(1)
 
 if not shutil.which("pyinstaller"):
@@ -38,8 +38,8 @@ PYINSTALLER_ARGS = [
   "--hidden-import", "indonime.server",
   "--hidden-import", "indonime.app",
   "--hidden-import", "webview.platforms.edgechromium",
-  # React build (static files served by indonime.server)
-  "--add-data", f"{UI_DIST};ui/dist",
+  # RN web build (react-native-web; static files diserve indonime.server)
+  "--add-data", f"{UI_DIST};app/dist",
   "indonime/app.py"
 ]
 

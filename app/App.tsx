@@ -1,10 +1,13 @@
-// Indonime — React Native (Expo SDK 57)
-// Port pixel-faithful dari ui/ (React web). Backend: Python (indonime/), port 8756.
+// Indonime — React Native (Expo SDK 57) web/native app.
+// Port pixel-faithful; desktop GUI (app.py + server.py) nyaji app/dist (RN web),
+// React web Vite lama (ui/) sudah dihapus. Backend: Python (indonime/), port 8756.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactElement, ReactNode, RefObject } from 'react'
 import {
   Animated, BackHandler, Modal, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, useWindowDimensions, View,
 } from 'react-native'
+import type { ImageStyle, NativeScrollEvent, NativeSyntheticEvent, StyleProp, TextStyle, ViewStyle } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Image } from 'expo-image'
 import { VideoView, useVideoPlayer } from 'expo-video'
@@ -13,7 +16,8 @@ import Svg, { Defs, LinearGradient as SvgGrad, RadialGradient, Rect, Stop, Text 
 import { useFonts, Outfit_500Medium, Outfit_700Bold, Outfit_800ExtraBold } from '@expo-google-fonts/outfit'
 import { Rubik_400Regular, Rubik_500Medium, Rubik_600SemiBold } from '@expo-google-fonts/rubik'
 
-import { api, API_URL } from './src/api'
+import { api, resolveBase } from './src/api'
+import type { AnimeInfo, DownloadOpt, Ep, Item, Job } from './src/api'
 import { Ic } from './src/icons'
 import { C, F } from './src/theme'
 import { s } from './src/styles'
@@ -24,6 +28,16 @@ const BRK = 900 // breakpoint web @media (max-width: 900px)
 // Breakpoint context: desktop = lebar ≥ 900px (layout web penuh); else layout mobile
 const Brk = createContext({ desktop: false, width: 0 })
 const useBrk = () => useContext(Brk)
+
+type ViewName = 'home' | 'anime' | 'player'
+
+interface AnimeState {
+  item: Item | null
+  provider: string
+  url: string
+  info: AnimeInfo
+  episodes: Ep[]
+}
 
 export default function App() {
   const { width } = useWindowDimensions()
@@ -39,34 +53,34 @@ function AppInner() {
     Outfit_500Medium, Outfit_700Bold, Outfit_800ExtraBold,
     Rubik_400Regular, Rubik_500Medium, Rubik_600SemiBold,
   })
-  const [top, setTop] = useState([])
-  const [seasonal, setSeasonal] = useState([])
-  const [latest, setLatest] = useState(null)
-  const [genres, setGenres] = useState(['Semua'])
+  const [top, setTop] = useState<Item[]>([])
+  const [seasonal, setSeasonal] = useState<Item[]>([])
+  const [latest, setLatest] = useState<Item[] | null>(null)
+  const [genres, setGenres] = useState<string[]>(['Semua'])
   const [genre, setGenre] = useState('Semua')
-  const [genreItems, setGenreItems] = useState(null)
+  const [genreItems, setGenreItems] = useState<Item[] | null>(null)
   const [genreLoading, setGenreLoading] = useState(false)
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState(null)
+  const [results, setResults] = useState<Item[] | null>(null)
   const [searching, setSearching] = useState(false)
-  const [cands, setCands] = useState(null)
-  const [view, setView] = useState('home')
-  const [anime, setAnime] = useState(null)
-  const [stream, setStream] = useState(null)
-  const [streamError, setStreamError] = useState(null)
+  const [cands, setCands] = useState<[string, string, string][] | null>(null)
+  const [view, setView] = useState<ViewName>('home')
+  const [anime, setAnime] = useState<AnimeState | null>(null)
+  const [stream, setStream] = useState<string | null>(null)
+  const [streamError, setStreamError] = useState<string | null>(null)
   const [busy, setBusy] = useState('')
-  const [error, setError] = useState(null)
-  const [jobs, setJobs] = useState([])
-  const scrollRef = useRef(null)
+  const [error, setError] = useState<string | null>(null)
+  const [jobs, setJobs] = useState<Job[]>([])
+  const scrollRef = useRef<ScrollView>(null)
 
   const scrollTop = () => scrollRef.current?.scrollTo({ y: 0, animated: false })
 
   useEffect(() => {
     let alive = true
-    api.discover('top').then(r => alive && setTop(r.items)).catch(() => {})
-    api.discover('season').then(r => alive && setSeasonal(r.items)).catch(() => {})
-    api.discover('latest').then(r => alive && setLatest(r.items)).catch(() => {})
-    api.discover('genres').then(r => alive && setGenres(['Semua', ...r.genres])).catch(() => {})
+    api.discover('top').then(r => alive && setTop(r.items ?? [])).catch(() => {})
+    api.discover('season').then(r => alive && setSeasonal(r.items ?? [])).catch(() => {})
+    api.discover('latest').then(r => alive && setLatest(r.items ?? [])).catch(() => {})
+    api.discover('genres').then(r => alive && setGenres(['Semua', ...(r.genres ?? [])])).catch(() => {})
     return () => { alive = false }
   }, [])
 
@@ -92,24 +106,24 @@ function AppInner() {
     setView('home'); scrollTop()  // search harus keluar dari halaman anime/player dulu
     setSearching(true)
     api.discover('search', 'q=' + encodeURIComponent(q))
-      .then(r => setResults(r.results))
-      .catch(err => setError(err.message))
+      .then(r => setResults(r.results ?? []))
+      .catch(err => setError(eMsg(err)))
       .finally(() => setSearching(false))
   }
 
   const goHome = () => { setView('home'); setResults(null); setQuery(''); setCands(null); setGenre('Semua'); scrollTop() }
 
-  const pickGenre = g => {
+  const pickGenre = (g: string) => {
     setGenre(g); setGenreItems(null)
     if (g === 'Semua') return
     setGenreLoading(true)
     api.discover('genre', 'genre=' + encodeURIComponent(g))
-      .then(r => setGenreItems(r.items))
-      .catch(err => setError(err.message))
+      .then(r => setGenreItems(r.items ?? []))
+      .catch(err => setError(eMsg(err)))
       .finally(() => setGenreLoading(false))
   }
 
-  const openDetail = (item, prov, url) => {
+  const openDetail = (item: Item | null, prov: string, url: string) => {
     setBusy('Memuat detail...')
     Promise.all([api.info(url, prov), api.episodes(url, prov)])
       .then(([info, eps]) => {
@@ -121,14 +135,14 @@ function AppInner() {
       .finally(() => setBusy(''))
   }
 
-  const pickAnime = async item => {
+  const pickAnime = async (item: Item) => {
     setBusy('Mencari sumber...')
     try {
       if (item.url) {  // shape Rilis Terbaru: url provider langsung
         const prov = item.url.includes('otakudesu') ? 'otakudesu' : 'anoboy'
         return openDetail(item, prov, item.url)
       }
-      const { sources, candidates } = await api.resolve(item.id, item.title)
+      const { sources, candidates } = await api.resolve(item.id!, item.title)
       for (const [prov, url] of Object.entries(sources)) {
         // gap-fill: provider pertama yang sukses; gagal → coba berikutnya
         try {
@@ -140,32 +154,32 @@ function AppInner() {
         } catch { /* coba provider lain */ }
       }
       setCands(candidates)  // resolve kosong / semua gagal → pilih manual
-    } catch (err) { setError(err.message) }
+    } catch (err) { setError(eMsg(err)) }
     finally { setBusy('') }
   }
 
-  const pickCandidate = (prov, url) => openDetail(null, prov, url)
+  const pickCandidate = (prov: string, url: string) => openDetail(null, prov, url)
 
-  const handlePlay = async (url, label) => {
+  const handlePlay = async (url: string, label: string) => {
     // Langsung pindah ke halaman nonton — loading resolve stream di player.
     setView('player'); setStream(null); setStreamError(null); scrollTop()
     try {
       const r = await api.play(url, label)
-      if (r.stream) setStream(r.stream.startsWith('http') ? r.stream : API_URL + r.stream)
+      if (r.stream) setStream(r.stream.startsWith('http') ? r.stream : (await resolveBase()) + r.stream)
       else setStreamError(r.error || 'Gagal memutar')
-    } catch (err) { setStreamError(err.message) }
+    } catch (err) { setStreamError(eMsg(err)) }
   }
 
-  const handleDownload = (opt, ep) => {
-    const base = (anime.info.title || (anime.item && anime.item.title) || '').replace(/\s+Subtitle Indonesia.*$/i, '')
-    api.download(opt.url, `${base} — ${ep.title}`).catch(err => setError(err.message))
+  const handleDownload = (opt: DownloadOpt, ep: Ep) => {
+    const base = (anime?.info.title || (anime?.item && anime.item.title) || '').replace(/\s+Subtitle Indonesia.*$/i, '')
+    api.download(opt.url, `${base} — ${ep.title}`).catch(err => setError(eMsg(err)))
   }
 
   if (!fontsLoaded) return null
 
   return (
     <View style={s.app}>
-      {Platform.OS !== 'web' && <StatusBar style="light" backgroundColor={C.bg} />}
+      {Platform.OS !== 'web' && <StatusBar style="light" />}
       <AmbientGlow />
 
       <Topbar query={query} setQuery={setQuery} onSubmit={submit} onHome={goHome} />
@@ -236,11 +250,21 @@ function AppInner() {
 }
 
 /* Section y-offsets utk Footer jump (pengganti anchor #latest-title / #popular-title) */
-const sectionY = {}
+const sectionY: Record<string, number> = {}
+
+// catch clause di TS strict = unknown; fetch error selalu Error
+const eMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 /* ── Header ─────────────────────────────────────────────── */
 
-function Topbar({ query, setQuery, onSubmit, onHome }) {
+interface TopbarProps {
+  query: string
+  setQuery: (v: string) => void
+  onSubmit: () => void
+  onHome: () => void
+}
+
+function Topbar({ query, setQuery, onSubmit, onHome }: TopbarProps) {
   const { desktop, width } = useBrk()
   if (desktop) {
     // Layout desktop: satu baris 64px — logo | search (flex, max 360, kanan)
@@ -270,7 +294,7 @@ function Topbar({ query, setQuery, onSubmit, onHome }) {
   )
 }
 
-function LogoButton({ onPress }) {
+function LogoButton({ onPress }: { onPress: () => void }) {
   return (
     <Pressable style={s.logo} onPress={onPress} hitSlop={8}>
       <LinearGradient colors={[C.primary, C.accent]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.logoMark}>
@@ -284,7 +308,14 @@ function LogoButton({ onPress }) {
   )
 }
 
-function SearchBox({ query, setQuery, onSubmit, style }) {
+interface SearchBoxProps {
+  query: string
+  setQuery: (v: string) => void
+  onSubmit: () => void
+  style?: StyleProp<ViewStyle>
+}
+
+function SearchBox({ query, setQuery, onSubmit, style }: SearchBoxProps) {
   return (
     <View style={[s.searchBox, style]}>
       <TextInput value={query} onChangeText={setQuery} placeholder="Cari anime…"
@@ -299,7 +330,23 @@ function SearchBox({ query, setQuery, onSubmit, style }) {
 
 /* ── Home ───────────────────────────────────────────────── */
 
-function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItems, genreLoading, results, searching, query, onPick, scrollRef }) {
+interface HomeViewProps {
+  top: Item[]
+  seasonal: Item[]
+  latest: Item[] | null
+  genres: string[]
+  genre: string
+  onGenrePick: (g: string) => void
+  genreItems: Item[] | null
+  genreLoading: boolean
+  results: Item[] | null
+  searching: boolean
+  query: string
+  onPick: (item: Item) => void
+  scrollRef: RefObject<ScrollView | null>
+}
+
+function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItems, genreLoading, results, searching, query, onPick, scrollRef }: HomeViewProps) {
   const { desktop, width } = useBrk()
   // grid web: base auto-fill minmax(160px,1fr) gap 18; ≤480px: minmax(120px,1fr) gap 12
   // container dibatasi wrap max-width 1200 (web .wrap)
@@ -393,7 +440,13 @@ function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItem
   )
 }
 
-function StatCard({ value, label, style }) {
+interface StatCardProps {
+  value: string | number
+  label: string
+  style?: StyleProp<ViewStyle>
+}
+
+function StatCard({ value, label, style }: StatCardProps) {
   return (
     <View style={[s.statCard, style]}>
       <LinearGradient colors={[C.card, C.bg2]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, Platform.OS === 'web' && { zIndex: -1 }]} />
@@ -403,15 +456,23 @@ function StatCard({ value, label, style }) {
   )
 }
 
-function Rail({ title, icon, toolbar, children, wide }) {
+interface RailProps {
+  title: string
+  icon: ReactNode
+  toolbar?: ReactNode
+  children: ReactNode
+  wide?: boolean
+}
+
+function Rail({ title, icon, toolbar, children, wide }: RailProps) {
   const { desktop } = useBrk()
-  const scroll = useRef(null)
+  const scroll = useRef<ScrollView>(null)
   const xRef = useRef(0)
   const [canLeft, setCanLeft] = useState(false)
   const [canRight, setCanRight] = useState(true)
   const step = wide ? 360 : 200
 
-  const evalArrows = e => {
+  const evalArrows = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = e.nativeEvent.contentOffset.x
     const mw = e.nativeEvent.layoutMeasurement.width
     const cw = e.nativeEvent.contentSize.width
@@ -419,7 +480,7 @@ function Rail({ title, icon, toolbar, children, wide }) {
     setCanLeft(x > 4)
     setCanRight(x < cw - mw - 4)
   }
-  const go = d => scroll.current?.scrollTo({ x: Math.max(0, xRef.current + d * step), animated: true })
+  const go = (d: number) => scroll.current?.scrollTo({ x: Math.max(0, xRef.current + d * step), animated: true })
 
   return (
     <View>
@@ -449,7 +510,12 @@ function Rail({ title, icon, toolbar, children, wide }) {
   )
 }
 
-function Hero({ items, onPick }) {
+interface HeroProps {
+  items: Item[]
+  onPick: (item: Item) => void
+}
+
+function Hero({ items, onPick }: HeroProps) {
   const { desktop, width } = useBrk()
   const [idx, setIdx] = useState(0)
   const slides = items.slice(0, 6)
@@ -476,7 +542,8 @@ function Hero({ items, onPick }) {
     Animated.timing(scale, { toValue: 1, duration: 8000, useNativeDriver: Platform.OS !== 'web' }).start()
     Animated.timing(fill, { toValue: 1, duration: HERO_MS, useNativeDriver: Platform.OS !== 'web' }).start()
     const next = slides[(idx + 1) % n]
-    if (next?.image_full || next?.image) Image.prefetch(next.image_full || next.image)
+    const nxt = next?.image_full || next?.image
+    if (nxt) Image.prefetch(nxt)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx])
 
@@ -549,16 +616,27 @@ function Hero({ items, onPick }) {
   )
 }
 
-function HeroImg({ it, style }) {
+interface HeroImgProps {
+  it: Item
+  style?: StyleProp<ViewStyle>
+}
+
+function HeroImg({ it, style }: HeroImgProps) {
   const [src, setSrc] = useState(it.image_full || it.image || '')
   useEffect(() => { setSrc(it.image_full || it.image || '') }, [it])
   if (!src) return null
-  return <Image source={{ uri: src }} contentFit="cover" blurRadius={28} transition={300} style={style} onError={() => setSrc('')} />
+  // Image style cuma terima ImageStyle; callers kirim ViewStyle (s.heroBg) — runtime sama
+  return <Image source={{ uri: src }} contentFit="cover" blurRadius={28} transition={300} style={style as StyleProp<ImageStyle>} onError={() => setSrc('')} />
 }
 
 /* ── Cards & sections ───────────────────────────────────── */
 
-function SectionTitle({ children, icon }) {
+interface SectionTitleProps {
+  children: ReactNode
+  icon?: ReactNode
+}
+
+function SectionTitle({ children, icon }: SectionTitleProps) {
   return (
     <View style={s.sectionTitleRow}>
       {icon && <View style={s.sectionIcon}>{icon}</View>}
@@ -568,7 +646,13 @@ function SectionTitle({ children, icon }) {
   )
 }
 
-function GenreChips({ genres, active, onPick }) {
+interface GenreChipsProps {
+  genres: string[]
+  active: string
+  onPick: (g: string) => void
+}
+
+function GenreChips({ genres, active, onPick }: GenreChipsProps) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 0 }}>
       <View style={s.chips}>
@@ -586,7 +670,17 @@ function GenreChips({ genres, active, onPick }) {
   )
 }
 
-function Card({ item, badge, sub, meta, i, onPick, style }) {
+interface CardProps {
+  item: Item
+  badge?: string
+  sub?: string
+  meta?: string
+  i?: number
+  onPick: (item: Item) => void
+  style?: StyleProp<ViewStyle>
+}
+
+function Card({ item, badge, sub, meta, i, onPick, style }: CardProps) {
   return (
     <Pressable style={[s.card, style]} onPress={() => onPick(item)}>
       <View style={s.cardPoster}>
@@ -607,7 +701,12 @@ function Card({ item, badge, sub, meta, i, onPick, style }) {
   )
 }
 
-function SkeletonRail({ n, wide }) {
+interface SkeletonRailProps {
+  n: number
+  wide?: boolean
+}
+
+function SkeletonRail({ n, wide }: SkeletonRailProps) {
   return (
     <View style={[s.rail, { flexDirection: 'row' }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       {Array.from({ length: n }, (_, i) => (
@@ -621,7 +720,13 @@ function SkeletonRail({ n, wide }) {
   )
 }
 
-function RankCard({ item, i, onPick }) {
+interface RankCardProps {
+  item: Item
+  i: number
+  onPick: (item: Item) => void
+}
+
+function RankCard({ item, i, onPick }: RankCardProps) {
   return (
     <Pressable style={s.rankCard} onPress={() => onPick(item)}>
       <GradText style={s.popRank} size={26} center colors={[C.primary2, C.accent]} horizontal={false}>
@@ -646,7 +751,13 @@ function RankCard({ item, i, onPick }) {
   )
 }
 
-function Poster({ item, style, children }) {
+interface PosterProps {
+  item: Item
+  style?: StyleProp<ViewStyle>
+  children?: ReactNode
+}
+
+function Poster({ item, style, children }: PosterProps) {
   const img = item.image || ''
   if (img) {
     return (
@@ -666,7 +777,19 @@ function Poster({ item, style, children }) {
 
 /* ── Buttons ────────────────────────────────────────────── */
 
-function Btn({ primary, play, ghost, small, disabled, onPress, icon, children, style }) {
+interface BtnProps {
+  primary?: boolean
+  play?: boolean
+  ghost?: boolean
+  small?: boolean
+  disabled?: boolean
+  onPress?: () => void
+  icon?: ReactNode
+  children: ReactNode
+  style?: StyleProp<ViewStyle>
+}
+
+function Btn({ primary, play, ghost, small, disabled, onPress, icon, children, style }: BtnProps) {
   const grad = primary
     ? <LinearGradient colors={[C.primary, C.primaryV2]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, Platform.OS === 'web' && { zIndex: -1 }]} />
     : play
@@ -692,7 +815,13 @@ function Btn({ primary, play, ghost, small, disabled, onPress, icon, children, s
 
 /* ── Anime detail ───────────────────────────────────────── */
 
-function ResSelect({ options, value, onChange }) {
+interface ResSelectProps {
+  options: ResOption[]
+  value: string
+  onChange: (v: string) => void
+}
+
+function ResSelect({ options, value, onChange }: ResSelectProps) {
   const [open, setOpen] = useState(false)
   const cur = options.find(o => o.url === value) || options[0]
 
@@ -727,27 +856,41 @@ function ResSelect({ options, value, onChange }) {
   )
 }
 
-function AnimeView({ anime, onPlay, onDownload, onBack }) {
-  const { desktop, width } = useBrk()
-  const [opts, setOpts] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState(null)
-  const [sel, setSel] = useState({})
-  const item = anime.item || {}
-  const { info, episodes, provider } = anime
-  const title = info.title || item.title
+interface AnimeViewProps {
+  anime: AnimeState
+  onPlay: (url: string, label: string) => void
+  onDownload: (opt: DownloadOpt, ep: Ep) => void
+  onBack: () => void
+}
 
-  const pick = async ep => {
+// Opsi server di modal: name = teks bersih (tanpa [res] prefix), label = raw server label
+interface ResOption {
+  name: string
+  url: string
+  label: string
+}
+
+function AnimeView({ anime, onPlay, onDownload, onBack }: AnimeViewProps) {
+  const { desktop, width } = useBrk()
+  const [opts, setOpts] = useState<{ ep: Ep; options: DownloadOpt[] } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [sel, setSel] = useState<Record<string, string>>({})
+  const item = anime.item || ({} as Item)
+  const { info, episodes, provider } = anime
+  const title = info.title || item.title || ''
+
+  const pick = async (ep: Ep) => {
     setBusy(true); setErr(null); setOpts(null)
     try { setOpts({ ep, options: (await api.downloads(ep.url, provider)).options }) }
-    catch (e) { setErr(e.message) }
+    catch (e) { setErr(eMsg(e)) }
     finally { setBusy(false) }
   }
 
   const pickList = useMemo(() => (opts ? [...opts.options].reverse() : []), [opts])
 
   const groups = useMemo(() => {
-    const map = new Map()
+    const map = new Map<string, ResOption[]>()
     // Browser tak bisa decode MKV — sama spt web, hidden utk player mobile.
     // TUI/mpv path tetap nge-serve.
     pickList.filter(o => !/mkv/i.test(o.label)).forEach(o => {
@@ -755,7 +898,7 @@ function AnimeView({ anime, onPlay, onDownload, onBack }) {
       const res = m ? m[1] : 'Lainnya'
       const name = m ? m[2] : o.label
       if (!map.has(res)) map.set(res, [])
-      map.get(res).push({ name, url: o.url, label: o.label })
+      map.get(res)!.push({ name, url: o.url, label: o.label })
     })
     return [...map.entries()].map(([res, options]) => ({ res, options }))
   }, [pickList])
@@ -836,7 +979,7 @@ function AnimeView({ anime, onPlay, onDownload, onBack }) {
                 {!opts.options.length && <Text style={[s.hint, { textAlign: 'center', paddingVertical: 12 }]}>Tidak ada server kompatibel.</Text>}
                 {groups.map(g => {
                   const cur = sel[g.res] || g.options[0].url
-                  const picked = g.options.find(o => o.url === cur)
+                  const picked = g.options.find(o => o.url === cur) ?? g.options[0]
                   return (
                     <View key={g.res} style={[s.optGroup, { marginBottom: 8 }, !desktop && { flexWrap: 'wrap' }]}>
                       <Text style={s.optGroupTitle}>{g.res}</Text>
@@ -859,7 +1002,13 @@ function AnimeView({ anime, onPlay, onDownload, onBack }) {
 
 /* ── Player ─────────────────────────────────────────────── */
 
-function PlayerView({ stream, error, onBack }) {
+interface PlayerViewProps {
+  stream: string | null
+  error: string | null
+  onBack: () => void
+}
+
+function PlayerView({ stream, error, onBack }: PlayerViewProps) {
   return (
     <View style={[s.wrap, s.pagePad, s.player]}>
       <Btn ghost style={s.back} onPress={onBack} icon={<Ic.back color={C.fg} size={18} />}>Kembali</Btn>
@@ -879,14 +1028,18 @@ function PlayerView({ stream, error, onBack }) {
 }
 
 // VideoWrapper terpisah biar useVideoPlayer (hook) gak pernah conditional.
-function VideoCore({ stream }) {
+function VideoCore({ stream }: { stream: string }) {
   const player = useVideoPlayer(stream, p => { p.loop = false; p.play() })
   return <VideoView player={player} style={s.video} contentFit="contain" nativeControls />
 }
 
 /* ── Jobs & footer ──────────────────────────────────────── */
 
-function JobToasts({ jobs }) {
+interface JobToastsProps {
+  jobs: Job[]
+}
+
+function JobToasts({ jobs }: JobToastsProps) {
   return (
     <View style={[s.jobToasts, { pointerEvents: 'none' }]}>
       {jobs.slice(-3).map(j => (
@@ -908,15 +1061,19 @@ function JobToasts({ jobs }) {
   )
 }
 
-function pct(j) {
+function pct(j: Job) {
   return j.total ? `${Math.round((j.done / j.total) * 100)}%` : '…'
 }
-function pctWidth(j) {
+function pctWidth(j: Job): `${number}%` {
   const done = j.total ? Math.min(1, j.done / j.total) : 0
   return `${Math.round(done * 100)}%`
 }
 
-function Footer({ onJump }) {
+interface FooterProps {
+  onJump: (k: string) => void
+}
+
+function Footer({ onJump }: FooterProps) {
   const { desktop } = useBrk()
   return (
     <View style={s.footer}>
@@ -1001,7 +1158,13 @@ function Spinner() {
   return <Animated.View style={[s.spinner, { transform: [{ rotate }] }]} />
 }
 
-function Shimmer({ style, children, delay = 0 }) {
+interface ShimmerProps {
+  style?: StyleProp<ViewStyle>
+  children?: ReactNode
+  delay?: number
+}
+
+function Shimmer({ style, children, delay = 0 }: ShimmerProps) {
   const o = useRef(new Animated.Value(0.55)).current
   useEffect(() => {
     const anim = Animated.loop(Animated.sequence([
@@ -1021,12 +1184,24 @@ function Shimmer({ style, children, delay = 0 }) {
    (flex-end) — RN tidak bisa baseline-align View. Ponytail: lebar dihitung heuristik
    (chars × size × 0.62); kalau butuh tepat, callers bisa kasih prop `width`. */
 let _gid = 0
-function GradText({ children, style, size = 22, center = false, width, colors = [C.primary2, C.accent], horizontal = true, weight = 800 }) {
+interface GradTextProps {
+  children: ReactNode
+  style?: StyleProp<ViewStyle> | StyleProp<TextStyle>
+  size?: number
+  center?: boolean
+  width?: number
+  colors?: [string, string]
+  horizontal?: boolean
+  weight?: number | string
+}
+
+function GradText({ children, style, size = 22, center = false, width, colors = [C.primary2, C.accent], horizontal = true, weight = 800 }: GradTextProps) {
   const id = useRef(`gt${++_gid}`).current
   const w = width || Math.ceil(String(children).length * size * 0.62)
   const h = Math.ceil(size * 1.2)
   return (
-    <View style={[style, { width: w, height: h }]}>
+    // callers kirim TextStyle (logoText/statNum/popRank); View terima keduanya di runtime
+    <View style={[style, { width: w, height: h }] as unknown as StyleProp<ViewStyle>}>
       <Svg width={w} height={h}>
         <Defs>
           <SvgGrad id={id} x1="0" y1="0" x2={horizontal ? '1' : '0'} y2={horizontal ? '0' : '1'}>
