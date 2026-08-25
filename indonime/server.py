@@ -23,7 +23,7 @@ from . import plugins
 from .resolve import candidates as _resolve_candidates, resolve as _resolve_urls
 from .ext import gdrive, megaNZ, pdrain
 from .ext.megaNZ import _mega_fid
-from .plugins._base import http_stream, resolve_url
+from .plugins._base import HEADERS, http_stream, resolve_url
 
 _DL_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 # Embedded player (Kotlin/JavaFX) cache: file penuh di-download dulu karena MP4
@@ -330,9 +330,14 @@ class _Handler(BaseHTTPRequestHandler):
     # kalau upstream 206 pasokan Range, browser bisa seek seperti sumber asli.
     # Forward client Range → upstream biar 206 + seek kerja (bukan full 200).
     range_header = self.headers.get('Range')
+    # CDN stream-vid (gdplayer) gate requests without Referer — add it.
+    proxy_headers = {'Range': range_header} if range_header else None
+    if 'gdplayer' in url:
+      proxy_headers = {**HEADERS, **(proxy_headers or {}),
+                       'Referer': 'https://gdplayer.to/',
+                       'Origin': 'https://gdplayer.to'}
     try:
-      up = http_stream(url, timeout=45,
-                       headers={'Range': range_header} if range_header else None)
+      up = http_stream(url, timeout=45, headers=proxy_headers)
     except Exception as e:
       return self._json(502, {'error': f'Stream upstream error: {e}'})
     try:

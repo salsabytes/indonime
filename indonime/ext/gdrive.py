@@ -20,7 +20,7 @@ import json
 import re
 import urllib.parse
 
-from ..plugins._base import _open, http_get, http_head
+from ..plugins._base import HEADERS, _open, http_get, http_head
 from ..ui import Palette
 from tuiko import style
 
@@ -120,7 +120,7 @@ def _oct_unescape(s):
 
 # ── Dean Edwards packer (second obfuscation layer) ───────────────────────────
 
-_DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz'
+_DIGITS = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
 
 def _to_base(n, base):
@@ -177,10 +177,11 @@ def _dcx(pd_num, b64_blob):
 
 
 def _video_url(url):
-  # HEAD gate: only hand mpv links that answer video/*.
+  # HEAD gate: reject hard failures (4xx/5xx) but accept 2xx even when the
+  # upstream WAF returns text/html to HEAD probes (common with stream-vid CDN).
   try:
-    status, ctype = http_head(url, timeout=10)
-    return url if status == 200 and ctype.startswith('video/') else None
+    status, _ = http_head(url, timeout=10)
+    return url if 200 <= status < 300 else None
   except Exception:
     return None
 
@@ -198,6 +199,17 @@ def _gdplayer_url(url):
   # Full API flow: page vars → config → sources → decrypted video URL.
   _, _, _, body = http_get(url, timeout=15)
   html = body.decode('utf-8', 'replace')
+  # gdplayer.to/embed2 now returns an auto-submit form (POST to /x/...).
+  # The AAEncode script lives on the POST response — follow it once.
+  form_m = re.search(r'<form[^>]+action="([^"]+)"', html, re.I)
+  if form_m:
+    form_url = urllib.parse.unquote(form_m.group(1))
+    form_data = urllib.parse.urlencode({'referer': ''}).encode()
+    form_h = {**HEADERS, 'Content-Type': 'application/x-www-form-urlencoded',
+              'Referer': url}
+    with _open(form_url, timeout=15, method='POST',
+               headers=form_h, data=form_data) as r:
+      html = r.read().decode('utf-8', 'replace')
   scripts = _SCRIPT_RE.findall(html)
   if not scripts:
     return None
