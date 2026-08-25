@@ -1,6 +1,7 @@
 # Map AniList title → detail URL per provider. Search provider sekali per
 # judul, hasil di-cache ke disk biar gak re-hit. Multi-provider: semua
 # provider yang match ikut disimpan → gap-filling (fallback per episode/source).
+import concurrent.futures
 import json
 import os
 import re
@@ -50,9 +51,16 @@ def resolve(plugin_list, title, min_score=0.45):
   key = title
   if key in _map:
     return _map[key]
+  # cari semua provider secara paralel
+  # ponytail: 8 thread cap — aman utk ratusan plugin nanti; upgrade path: async (trio/httpx) kalau perlu retry/budget
+  with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(plugin_list), 8)) as ex:
+    futures = {ex.submit(p.search_anime, title): name for name, p in plugin_list}
+    results = {}
+    for f in concurrent.futures.as_completed(futures):
+      results[futures[f]] = f.result()
   out = {}
-  for name, plugin in plugin_list:
-    hits = plugin.search_anime(title)
+  for name, _ in plugin_list:
+    hits = results.get(name) or []
     if not hits:
       continue
     best = max(hits, key=lambda h: _score(title, h.get('title', '')))
@@ -66,5 +74,15 @@ def resolve(plugin_list, title, min_score=0.45):
 def candidates(plugin_list, title):
   # Semua hasil search semua provider → UI bisa tampilkan list manual (kalau
   # resolve kosong semua atau user mau pilih sendiri).
-  return [(name, h['title'], h['url']) for name, p in plugin_list
-          for h in p.search_anime(title)]
+  # cari semua provider secara paralel
+  with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(plugin_list), 8)) as ex:
+    futures = {ex.submit(p.search_anime, title): name for name, p in plugin_list}
+    results = {}
+    for f in concurrent.futures.as_completed(futures):
+      results[futures[f]] = f.result()
+  # gabung hasil urut sesuai plugin_list
+  out = []
+  for name, _ in plugin_list:
+    for h in results.get(name) or []:
+      out.append((name, h['title'], h['url']))
+  return out
