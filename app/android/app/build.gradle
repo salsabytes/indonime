@@ -15,6 +15,7 @@ chaquopy {
         buildPython System.getenv("CHAQUOPY_PYTHON") ?: "python"
         // spike: validate wheel availability first — only cryptography + tuiko
         pip {
+            install "beautifulsoup4"
             install "cryptography"
             install "tuiko"
         }

@@ -5,14 +5,14 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { ReactElement, ReactNode, RefObject } from 'react'
 import {
   Animated, BackHandler, Modal, Platform, Pressable, ScrollView,
-  StyleSheet, Text, TextInput, useWindowDimensions, View,
+  StatusBar as RNStatusBar, StyleSheet, Text, TextInput, useWindowDimensions, View,
 } from 'react-native'
 import type { ImageStyle, NativeScrollEvent, NativeSyntheticEvent, StyleProp, TextStyle, ViewStyle } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Image } from 'expo-image'
 import { VideoView, useVideoPlayer } from 'expo-video'
 import { StatusBar } from 'expo-status-bar'
-import Svg, { Defs, LinearGradient as SvgGrad, RadialGradient, Rect, Stop, Text as SvgText } from 'react-native-svg'
+import Svg, { Defs, LinearGradient as SvgGrad, Stop, Text as SvgText } from 'react-native-svg'
 import { useFonts, Outfit_500Medium, Outfit_700Bold, Outfit_800ExtraBold } from '@expo-google-fonts/outfit'
 import { Rubik_400Regular, Rubik_500Medium, Rubik_600SemiBold } from '@expo-google-fonts/rubik'
 
@@ -264,12 +264,15 @@ interface TopbarProps {
   onHome: () => void
 }
 
+// ponystail: padding atas status bar — StatusBar.currentHeight cuma reliable di Android
+const ANDROID_SB_TOP = Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 24) : 0
+
 function Topbar({ query, setQuery, onSubmit, onHome }: TopbarProps) {
   const { desktop, width } = useBrk()
   if (desktop) {
     // Layout desktop: satu baris 64px — logo | search (flex, max 360, kanan)
     return (
-      <View style={[s.topbar, { paddingVertical: 0 }]}>
+      <View style={[s.topbar, { paddingTop: ANDROID_SB_TOP, paddingVertical: 0 }]}>
         <View style={s.topbarInner}>
           <LogoButton onPress={onHome} />
           <SearchBox query={query} setQuery={setQuery} onSubmit={onSubmit}
@@ -280,7 +283,7 @@ function Topbar({ query, setQuery, onSubmit, onHome }: TopbarProps) {
   }
   // Layout mobile: 2 baris — logo+home / search
   return (
-    <View style={s.topbar}>
+    <View style={[s.topbar, { paddingTop: ANDROID_SB_TOP + 10 }]}>
       <View style={s.topbarRow}>
         <LogoButton onPress={onHome} />
         {width <= 480 && (
@@ -1123,24 +1126,13 @@ function Footer({ onJump }: FooterProps) {
   )
 }
 
-/* Ambient glow — radial gradients body web (violet kanan-atas, rose kiri-tengah) */
+/* Ambient glow — LinearGradient replacement for SVG RadialGradient
+   (RN SVG RadialGradient percentage attrs unreliable on Android → solid fills) */
 function AmbientGlow() {
   return (
-    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
-      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
-        <Defs>
-          <RadialGradient id="glowViolet" cx="80%" cy="0%" r="75%">
-            <Stop offset="0" stopColor="rgba(124,58,237,0.14)" />
-            <Stop offset="0.6" stopColor="rgba(124,58,237,0)" />
-          </RadialGradient>
-          <RadialGradient id="glowRose" cx="0%" cy="35%" r="60%">
-            <Stop offset="0" stopColor="rgba(244,63,94,0.08)" />
-            <Stop offset="0.55" stopColor="rgba(244,63,94,0)" />
-          </RadialGradient>
-        </Defs>
-        <Rect width="100%" height="100%" fill="url(#glowViolet)" />
-        <Rect width="100%" height="100%" fill="url(#glowRose)" />
-      </Svg>
+    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <LinearGradient colors={['rgba(124,58,237,0.12)', 'transparent']} start={{ x: 1, y: 0 }} end={{ x: 0.3, y: 0.5 }} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['rgba(244,63,94,0.06)', 'transparent']} start={{ x: 0, y: 0.3 }} end={{ x: 0.5, y: 0.7 }} style={StyleSheet.absoluteFill} />
     </View>
   )
 }
