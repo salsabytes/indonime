@@ -600,8 +600,8 @@ function Card({ item, badge, sub, meta, i, onPick, style }) {
       </View>
       <View style={s.cardBody}>
         <Text style={s.cardTitle} numberOfLines={2}>{item.title}</Text>
-        {sub && <Text style={s.cardSub}>{sub}</Text>}
-        {meta && <Text style={s.cardMeta}>{meta}</Text>}
+        {sub ? <Text style={s.cardSub}>{sub}</Text> : null}
+        {meta ? <Text style={s.cardMeta}>{meta}</Text> : null}
       </View>
     </Pressable>
   )
