@@ -5,6 +5,7 @@
 #   pip install pyinstaller
 #   python build_exe.py
 import sys
+import struct
 import shutil
 import subprocess
 from pathlib import Path
@@ -23,12 +24,24 @@ if not shutil.which("pyinstaller"):
 for d in ['dist', 'build']:
   shutil.rmtree(d, ignore_errors=True)
 
+# Wrap app/assets/icon.png in an ICO container (Vista+ renders PNG-compressed
+# icon entries). Stdlib only — no Pillow needed.
+ICON_PNG = Path("app/assets/icon.png")
+ICO = Path("build/Indonime.ico")
+if ICON_PNG.exists():
+  png = ICON_PNG.read_bytes()
+  ICO.parent.mkdir(exist_ok=True)
+  ICO.write_bytes(struct.pack('<HHH', 0, 1, 1)
+                  + struct.pack('<BBBBHHII', 0, 0, 0, 0, 1, 32, len(png), 22)
+                  + png)
+
 PYINSTALLER_ARGS = [
   sys.executable, "-m", "PyInstaller",
   "--clean",
   "--onefile",
-  "--noconsole",
-  "--name", "Indonime",
+    "--noconsole",
+    "--name", "Indonime",
+    *(["--icon", str(ICO)] if ICO.exists() else []),
   # dynamic imports — PyInstaller can't auto-detect these
   "--hidden-import", "cryptography",  # try/except import
   "--hidden-import", "indonime.plugins.otakudesu",
