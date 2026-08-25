@@ -67,7 +67,7 @@ let _webBase: string | null = null
 // relative '' benar) atau di-serve expo dev (:8081, gak nge-proxy /api → fallback
 // http://127.0.0.1:8756). Probe sekali, hasil di-cache.
 export async function resolveBase(): Promise<string> {
-  if (Platform.OS === 'android') return 'http://10.0.2.2:8756'
+  if (Platform.OS === 'android') return 'http://127.0.0.1:8756'  // backend tertanam (Chaquopy) di proses app
   if (Platform.OS !== 'web') return 'http://127.0.0.1:8756'
   if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL
   if (_webBase !== null) return _webBase
