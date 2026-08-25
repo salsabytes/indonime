@@ -35,13 +35,20 @@ if ICON_PNG.exists():
                   + struct.pack('<BBBBHHII', 0, 0, 0, 0, 1, 32, len(png), 22)
                   + png)
 
+VERSION_FILE = Path("version_info.txt")  # exe version metadata, reduces AV false positives
+
 PYINSTALLER_ARGS = [
   sys.executable, "-m", "PyInstaller",
   "--clean",
   "--onefile",
-    "--noconsole",
-    "--name", "Indonime",
-    *(["--icon", str(ICO)] if ICO.exists() else []),
+  "--noconsole",
+  "--name", "Indonime",
+]
+if ICO.exists():
+  PYINSTALLER_ARGS += ["--icon", str(ICO)]
+if VERSION_FILE.exists():
+  PYINSTALLER_ARGS += ["--version-file", str(VERSION_FILE)]
+PYINSTALLER_ARGS += [
   # dynamic imports — PyInstaller can't auto-detect these
   "--hidden-import", "cryptography",  # try/except import
   "--hidden-import", "indonime.plugins.otakudesu",

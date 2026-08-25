@@ -61,8 +61,17 @@ Ada **3 cara** pake Indonime — pilih yang paling cocok buat kamu:
 | Step | Aksi |
 |---|---|
 | 1️⃣ | Download [`Indonime.exe`](https://github.com/salsabytes/indonime/releases/latest) |
-| 2️⃣ | Ekstrak & jalankan — **mpv auto-install** kalo belum ada |
+| 2️⃣ | Buka exe — backend + UI + player langsung jalan, gak perlu install apa-apa |
 | 3️⃣ | Tinggal pilih anime & nonton! 🎉 |
+
+> ⚠️ **Windows bilang "virus"/"protected your PC"?** Bukan virus — exe gak di-sign
+> (pakai sertifikat berbayar) jadi SmartScreen/Defender nge-flag heuristic.
+> Cara lewatin:
+> - SmartScreen *"Windows protected your PC"* → klik **More info** → **Run anyway**,
+>   atau klik kanan exe → **Properties** → centang **Unblock** (sekali doang).
+> - Defender deteksi beneran → **Windows Security → Protection history** →
+>   **Restore** file-nya, terus **Allow on device**.
+> - Kode sumber terbuka, build dari repo: `python build_exe.py`.
 
 ### 🔵 Via Pip (Developer)
 
