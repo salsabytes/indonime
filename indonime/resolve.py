@@ -1,6 +1,6 @@
-# Map AniList title → detail URL per provider. Search provider sekali per
-# judul, hasil di-cache ke disk biar gak re-hit. Multi-provider: semua
-# provider yang match ikut disimpan → gap-filling (fallback per episode/source).
+# Map AniList title → detail URL per provider. Search each provider once per
+# title, cache results to disk to avoid re-hits. Multi-provider: every matching
+# provider is stored → gap-filling (per-episode/source fallback).
 import concurrent.futures
 import json
 import os
@@ -46,13 +46,12 @@ def _score(a, b):
 
 
 def resolve(plugin_list, title, min_score=0.45):
-  # plugin_list: [(name, plugin), ...] urutan fallback. Return {provider: url}
-  # untuk semua yang match; kosong kalau gak ada yang match.
+  # plugin_list: [(name, plugin), ...] fallback order. Return {provider: url}
+  # for every match; empty when nothing matches.
   key = title
   if key in _map:
     return _map[key]
-  # cari semua provider secara paralel
-  # ponytail: 8 thread cap — aman utk ratusan plugin nanti; upgrade path: async (trio/httpx) kalau perlu retry/budget
+  # search all providers in parallel
   with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(plugin_list), 8)) as ex:
     futures = {ex.submit(p.search_anime, title): name for name, p in plugin_list}
     results = {}
@@ -72,15 +71,15 @@ def resolve(plugin_list, title, min_score=0.45):
 
 
 def candidates(plugin_list, title):
-  # Semua hasil search semua provider → UI bisa tampilkan list manual (kalau
-  # resolve kosong semua atau user mau pilih sendiri).
-  # cari semua provider secara paralel
+  # All provider search results → UI can show a manual list (when resolve
+  # comes up empty or the user wants to pick).
+  # search all providers in parallel
   with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(plugin_list), 8)) as ex:
     futures = {ex.submit(p.search_anime, title): name for name, p in plugin_list}
     results = {}
     for f in concurrent.futures.as_completed(futures):
       results[futures[f]] = f.result()
-  # gabung hasil urut sesuai plugin_list
+  # merge results in plugin_list order
   out = []
   for name, _ in plugin_list:
     for h in results.get(name) or []:

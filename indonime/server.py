@@ -26,16 +26,16 @@ from .ext.megaNZ import _mega_fid
 from .plugins._base import HEADERS, http_stream, resolve_url
 
 _DL_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
-# Embedded player (Kotlin/JavaFX) cache: file penuh di-download dulu karena MP4
-# provider non-faststart (moov di akhir) — player streaming (range) gak bisa start,
-# tapi file lokal bisa. nama = sha1(server_url) -> dedupe + resume.
+# Embedded player (Kotlin/JavaFX) cache: downloads the full file first — MP4
+# providers without faststart (moov at end) can't start a range stream,
+# but a local file can. name = sha1(server_url) -> dedupe + resume.
 _PLAY_CACHE = os.path.join(os.path.expanduser("~"), ".indonime", "play")
 # Active mega streams for browser playback: id → {path, stop, thread, file_size, ts}
 _mega_streams = {}
 _mega_stream_seq = [0]
 _mega_stream_lock = threading.Lock()
-# ui/ (React web Vite) DIHAPUS — desktop GUI sekarang pakai RN web build dari `app/`
-# (react-native-web via expo export --platform web). ui/dist lama di-replace app/dist.
+# ui/ (React web Vite) REMOVED — desktop GUI now uses the RN web build from `app/`
+# (react-native-web via expo export --platform web). ui/dist replaced by app/dist.
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "dist")
 
 _jobs = {}  # job_id → status dict (frontend polls /api/jobs)
@@ -99,9 +99,9 @@ def _dl_worker(jid, server_url, title):
 
 
 def _play_cache_worker(jid, server_url, label):
-  # Embedded player (JavaFX) butuh file utuh — mirror _play routing, tapi simpan ke
-  # cache play (~/.indonime/play) biar gak nyampah di Downloads. Kalau file cache
-  # udah ada (sha1 url) langsung done tanpa download ulang.
+  # Embedded player (JavaFX) needs the full file — mirrors _play routing, but
+  # saves to the play cache (~/.indonime/play) instead of cluttering Downloads.
+  # If the cache file exists (sha1 url), finish without re-downloading.
   h = hashlib.sha1(server_url.encode()).hexdigest()[:16]
   out = io.StringIO()
   agg = _JobBar(jid)
@@ -160,9 +160,9 @@ class _Handler(BaseHTTPRequestHandler):
         return self._json(404, {'error': 'bad stream id'})
       return self._serve_mega_stream(sid)
     if p.path == '/api/stream':
-      # Range proxy utk direct-URL resolver (pdrain/gdrive): pixeldrain dkk
-      # nge-block fingerprint browser (403) → backend yang fetch (H1) terus
-      # forward byte stream + Range ke browser. SSRF-safe via _base allowlist.
+      # Range proxy for direct-URL resolvers (pdrain/gdrive): pixeldrain et al
+      # block browser fingerprints (403) → the backend fetches (H1) and
+      # forwards bytes + Range to the browser. SSRF-safe via _base allowlist.
       url = (parse_qs(p.query).get('url') or [''])[0]
       if not url:
         return self._json(400, {'error': 'url required'})
@@ -219,7 +219,7 @@ class _Handler(BaseHTTPRequestHandler):
 
   @staticmethod
   def _pool():
-    # Urutan fallback resolve: otakudesu dulu, anoboy cadangan.
+    # Fallback resolve order: otakudesu first, anoboy backup.
     return [(n, _load_plugin(n)) for n in ('otakudesu', 'anoboy')]
 
   def _discover(self, q):
@@ -234,7 +234,7 @@ class _Handler(BaseHTTPRequestHandler):
     if tab == 'search':
       return self._json(200, {'results': discovery.search(q('q', ''), 8)})
     if tab == 'latest':
-      # Rail "Rilis Terbaru": scrape home; fallback provider kalau kosong.
+      # "Rilis Terbaru" rail: scrape home; fallback provider when empty.
       items = _load_plugin('otakudesu').latest()
       if not items:
         items = _load_plugin('anoboy').latest()
@@ -256,7 +256,7 @@ class _Handler(BaseHTTPRequestHandler):
 
   def _api_resolve(self, body):
     # {id, title} → {sources: {provider: url}, candidates: [...]}. candidates
-    # cuma di-fetch kalau sources kosong (UI butuh list manual) — hemat req.
+    # are only fetched when sources are empty (UI needs a manual list).
     title = (body.get('title') or '').strip()
     if not title:
       return self._json(400, {'error': 'title required'})
@@ -286,7 +286,7 @@ class _Handler(BaseHTTPRequestHandler):
       return self._err(e)
 
   def _play_mega_stream(self, url):
-    """Resolve mega URL → proxy stream for browser playback."""
+    # Resolve mega URL → proxy stream for browser playback.
     try:
       curr = resolve_url(url, timeout=15)
       if not (('mega.nz' in curr or 'mega.co.nz' in curr) and '#' in curr):
@@ -326,10 +326,10 @@ class _Handler(BaseHTTPRequestHandler):
     return self._json(200, {'stream': f'/api/mega-stream/{sid}'})
 
   def _proxy_stream(self, url):
-    # Range proxy: byte-exact forward dari upstream (sudah lolos SSRF allowlist
-    # via _open di _base.http_stream). Status + Content-Type/Range di-forward;
-    # kalau upstream 206 pasokan Range, browser bisa seek seperti sumber asli.
-    # Forward client Range → upstream biar 206 + seek kerja (bukan full 200).
+    # Range proxy: byte-exact forward from upstream (already passed the SSRF
+    # allowlist via _open in _base.http_stream). Status + Content-Type/Range
+    # forwarded; when upstream serves 206, the browser can seek like the source.
+    # Forward client Range → upstream so 206 + seek work (not a full 200).
     range_header = self.headers.get('Range')
     # CDN stream-vid (gdplayer) gate requests without Referer — add it.
     proxy_headers = {'Range': range_header} if range_header else None
@@ -363,7 +363,7 @@ class _Handler(BaseHTTPRequestHandler):
       up.close()
 
   def _serve_mega_stream(self, sid):
-    """Serve the decrypted mega temp file to the browser."""
+    # Serve the decrypted mega temp file to the browser.
     with _mega_stream_lock:
       info = _mega_streams.get(sid)
     if info is None:
@@ -447,8 +447,9 @@ class _Handler(BaseHTTPRequestHandler):
       stop.set()
 
   def _play_cache(self, body):
-    # Embedded player (Kotlin/JavaFX): download file utuh ke cache play (~/.indonime/play),
-    # balikin job_id buat polling progress. dest jadi file:// URI di client.
+    # Embedded player (Kotlin/JavaFX): download the full file to the play cache
+    # (~/.indonime/play), return job_id for progress polling. dest becomes a
+    # file:// URI in the client.
     try:
       url = body.get('server_url', '')
       label = body.get('label', '')

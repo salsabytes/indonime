@@ -649,8 +649,8 @@ def _plugin_pool():
 
 
 def _load_by_title(title, key_source=None, out=None):
-  # discovery title → episode list via resolve multi-provider. Provider pertama
-  # yang episode list-nya sukses dipakai; semua gagal → candidate manual.
+  # discovery title → episode list via resolve multi-provider. First provider
+  # with a successful episode list wins; all failed → manual candidate.
   pool = _plugin_pool()
   with progress("Resolving source...", out=out):
     sources = _resolve(pool, title)
@@ -662,7 +662,7 @@ def _load_by_title(title, key_source=None, out=None):
       episode_list = plugin.episodes(url)
     if episode_list:
       return plugin, url, episode_list
-  # resolve kosong / semua provider episode-nya kosong → pilih manual
+  # resolve empty / every provider has no episodes → pick manually
   with progress("Mencari judul alternatif...", out=out):
     cands = _resolve_candidates(pool, title)
   if not cands:

@@ -1,4 +1,4 @@
-# Banner, headers, status messages — tuiko-based; loading bar juga dari tuiko.
+# Banner, headers, status messages — tuiko-based; loading bar too.
 import sys
 
 from tuiko import grad, progress, sep, strip_ansi, style, term_width, theme

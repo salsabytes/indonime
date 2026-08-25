@@ -55,9 +55,9 @@ class _GuardRedirects(urllib.request.HTTPRedirectHandler):
 _opener = urllib.request.build_opener(_GuardRedirects)
 
 def _open(url, timeout, method=None, headers=None, data=None):
-  # `if not ...fullmatch(url)` (bukan `is None`) — CodeQL hanya menembus guard
-  # berbentuk not-ekspresi; `is None` membuat guard-nya comparison node, bukan
-  # call-nya, sehingga barrier tidak diakui.
+  # `if not ...fullmatch(url)` (not `is None`) — CodeQL only sees through
+  # not-expression guards; `is None` makes the guard a comparison node, not a
+  # call, so the barrier isn't recognized.
   if not re.compile(_ALLOWED_HOST_RE, re.IGNORECASE).fullmatch(url):
     raise ValueError(f"URL diblokir: {url}")
   req = urllib.request.Request(url, data=data, headers=headers or HEADERS, method=method)

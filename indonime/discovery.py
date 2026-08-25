@@ -1,6 +1,6 @@
-# AniList discovery client — pengganti list_all/latest/search_anime sebagai
-# sumber daftar. GraphQL publik tanpa auth, urllib native (http_post_json),
-# limit 90 req/min → @cached TTL cukup, tanpa throttle.
+# AniList discovery client — replaces list_all/latest/search_anime as the
+# list source. Public GraphQL, no auth, native urllib (http_post_json),
+# 90 req/min limit → @cached TTL is enough, no throttle.
 import json
 import re
 
@@ -49,8 +49,8 @@ def _items(media_list, take=24):
 
 
 def _get(variables, take=24):
-  # AniList intermittent 5xx/gateway → retry 1x (cache skip empty, jadi
-  # transient error gak nempel; retry di sini nutupin web+RN+TUI sekaligus).
+  # AniList intermittent 5xx/gateway → retry 1x (empty results aren't cached,
+  # so transient errors don't stick; one retry covers web+RN+TUI).
   import time
   last = None
   for attempt in range(2):
@@ -95,7 +95,7 @@ def browse(sort='POPULARITY_DESC', n=50, page=1):
   return _get({'page': page, 'perPage': n, 'sort': [sort]}, n)
 
 
-# Subset genre umum yang ada di AniList genre taxonomy (populer di Indonesia).
+# Common genres from AniList's taxonomy (popular in Indonesia).
 GENRES = ['Action', 'Adventure', 'Comedy', 'Drama', 'Fantasy', 'Romance',
           'Sci-Fi', 'Shounen', 'Slice of Life', 'Supernatural', 'Sports',
           'Mystery']

@@ -230,19 +230,18 @@ def _parse_mega_url(url):
 
 
 # --- Anti IP-ban MEGA --------------------------------------------------------
-# MEGA blokir IP yang terlalu sering memanggil g.api.mega.co.nz (err -4 /
-# -14). Semua call dipaksa lewat satu pacer global (gap minimum antar-request)
-# dan hasil a:g di-cache per file_id — replay episode yang sama tidak
-# menyentuh API lagi.
-_API_GAP = 1.2     # detik minimal antar panggilan API (ponytail: nilai statis, naikkan kalau masih kena blok)
-_INFO_TTL = 600    # dl_link MEGA tetap valid berjam-jam; 10 menit aman untuk replay
+# MEGA blocks IPs that call g.api.mega.co.nz too often (err -4 / -14). All
+# calls go through one global pacer (min gap between requests) and a:g results
+# are cached per file_id — replaying the same episode never touches the API.
+_API_GAP = 1.2     # minimum seconds between API calls
+_INFO_TTL = 600    # MEGA dl_link stays valid for hours; 10 min is safe for replays
 _pace_lock = threading.Lock()
 _next_ok = [0.0]
 _info_cache = {}   # file_id -> (saved_monotonic, dl_link, file_size)
 
 def _api_pace():
-  # Serialisasi sengaja: pemegang kunci tidur sampai gilirannya, jadi N thread
-  # sekalipun tetap berjarak >= _API_GAP dari panggilan sebelumnya.
+  # Deliberate serialization: lock holder sleeps until its turn, so N threads
+  # stay at least _API_GAP apart from the previous call.
   with _pace_lock:
     delay = _next_ok[0] - time.monotonic()
     if delay > 0:
@@ -253,10 +252,8 @@ _ERR_NAMES = {-1:"internal",-2:"invalid",-3:"retry",-4:"rate-limited",
               -5:"denied",-6:"not found",-7:"inaccessible",-8:"quota",
               -9:"bad key",-11:"logged out",-13:"expired",-14:"blocked"}
 
-# MEGA API → (dl_link, file_size). Backoff saat -3/-4 (server minta pelan);
-# cache hasil supaya pemutaran ulang file yang sama tidak memanggil API lagi.
-# (ponytail: tanpa single-flight — dua tab buka episode sama secara bersamaan
-# masih 2x call; jarang terjadi, tambahin kalau keluhan muncul.)
+# MEGA API → (dl_link, file_size). Backoff on -3/-4 (server asks to slow
+# down); cache results so replaying the same file skips the API.
 def _fetch_file_info(file_id):
   hit = _info_cache.get(file_id)
   if hit is not None and time.monotonic() - hit[0] < _INFO_TTL:
@@ -277,7 +274,7 @@ def _fetch_file_info(file_id):
       err = res[0]
       print(f"[mega] API err {err} ({_ERR_NAMES.get(err,'?')})", file=sys.stderr)
       if err in (-3, -4) and attempt < 2:
-        time.sleep((attempt + 1) * 3)  # 3s lalu 6s — kasih napas ke rate limiter
+        time.sleep((attempt + 1) * 3)  # 3s then 6s — give the rate limiter room
         continue
       return None
     info = res[0]['g'], res[0]['s']

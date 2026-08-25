@@ -1,20 +1,9 @@
-"""GDrive resolver (Pola A): xtwap direct MP4 + gdplayer.to API decrypt.
-
-xtwap: dl.xtwap.top/download/?link=... → page carries a /download/file link
-that serves video/mp4 straight up. No cookies, no JS.
-
-gdplayer.to: page is an AAEncode-obfuscated blob (ﾟωﾟﾉ style). Decoding chain:
-  AAEncode script → 'return"<octal escapes>"' (left-assoc string concat,
-  NOT arithmetic — the key insight) → octal-unescape → Dean Edwards
-  p,a,c,k,e,d packed JS → window apx/ps/pd/kaken/qsx vars
-  → GET config + POST sources (both AES-CBC encrypted) → dcx decrypt
-  → sources[0].file = the video URL.
-
-The final stream-vid URL is often WAF-gated (openresty returns text/html to
-HEAD probes / 404 to non-browser GETs). The video/ HEAD check below keeps the
-app from launching mpv into a dead link; if the gate lifts, links start
-working with no code change.
-"""
+# GDrive resolver: xtwap direct MP4 + gdplayer.to API decrypt.
+# xtwap: page carries a /download/file link serving video/mp4 straight up.
+# gdplayer.to: AAEncode blob → octal-unescape → packed JS → apx/ps/pd/kaken/qsx
+#   vars → GET config + POST sources (AES-CBC) → dcx decrypt → video URL.
+# The final stream-vid URL is often WAF-gated (text/html to HEAD probes). The
+# HEAD check below keeps the app from launching mpv into a dead link.
 import base64
 import json
 import re
