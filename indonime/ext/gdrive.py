@@ -209,7 +209,7 @@ def _gdplayer_url(url):
     return None
   ps, kaken, pd = vars_['ps'], vars_['kaken'], vars_['pd']
 
-  headers = {'User-Agent': _HEADERS_USER_AGENT, 'Referer': url}
+  headers = {'User-Agent': HEADERS['User-Agent'], 'Referer': url}
   # Route through _open so the host allowlist + redirect guard apply (these
   # API hosts are gdplayer.to — already allowlisted).
   cfg_url = f'{apx}{vars_["qsx"]}/?p={ps}'
@@ -227,11 +227,6 @@ def _gdplayer_url(url):
   return files[0] if files else None
 
 
-_HEADERS_USER_AGENT = (
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-  'AppleWebKit/537.36 (KHTML, like Gecko) '
-  'Chrome/120.0.0.0 Safari/537.36'
-)
 
 
 def scrape(url):
