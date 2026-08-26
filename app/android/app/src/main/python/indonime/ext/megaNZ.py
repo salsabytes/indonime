@@ -250,11 +250,12 @@ def _api_pace():
 
 _ERR_NAMES = {-1:"internal",-2:"invalid",-3:"retry",-4:"rate-limited",
               -5:"denied",-6:"not found",-7:"inaccessible",-8:"quota",
-              -9:"bad key",-11:"logged out",-13:"expired",-14:"blocked"}
+              -9:"bad key",-11:"logged out",-13:"expired",-14:"blocked",
+              -16:"EBLOCKED (IP/anonymous block)",-17:"over quota",-18:"temp unavailable"}
 
 # MEGA API → (dl_link, file_size). Backoff on -3/-4 (server asks to slow
 # down); cache results so replaying the same file skips the API.
-def _fetch_file_info(file_id):
+def _fetch_file_info(file_id, err=None):
   hit = _info_cache.get(file_id)
   if hit is not None and time.monotonic() - hit[0] < _INFO_TTL:
     return hit[1], hit[2]
@@ -271,9 +272,11 @@ def _fetch_file_info(file_id):
       print(f"[mega] _fetch_file_info exception: {e}", file=sys.stderr)
       return None
     if isinstance(res[0], int):
-      err = res[0]
-      print(f"[mega] API err {err} ({_ERR_NAMES.get(err,'?')})", file=sys.stderr)
-      if err in (-3, -4) and attempt < 2:
+      code = res[0]
+      print(f"[mega] API err {code} ({_ERR_NAMES.get(code,'?')})", file=sys.stderr)
+      if err is not None:
+        err[:] = [f"MEGA API err {code} ({_ERR_NAMES.get(code, '?')})"]
+      if code in (-3, -4) and attempt < 2:
         time.sleep((attempt + 1) * 3)  # 3s then 6s — give the rate limiter room
         continue
       return None
@@ -402,14 +405,16 @@ def _reorder_moov_to_front(path):
     f.write(reorder)
 
 
-def resolve_mega_file_stream(url, file_id):
+def resolve_mega_file_stream(url, file_id, err=None):
   parsed = _parse_mega_url(url)
   if parsed is None:
+    if err is not None:
+      err[:] = ['Key MEGA tidak valid (link rusak)']
     print(style("✘ Gagal parse key MEGA", Palette.error))
     return None
   k, iv = parsed
 
-  info = _fetch_file_info(file_id)
+  info = _fetch_file_info(file_id, err=err)
   if info is None:
     print(style("✘ Gagal ambil API MEGA", Palette.error))
     return None

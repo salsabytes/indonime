@@ -128,6 +128,45 @@ def _play_cache_worker(jid, server_url, label):
       j["dest"], j["size"] = dest, size
 
 
+
+# Hide dead Mega download options: MEGA API returns -16/-6 for files that
+# were deleted or blocked at the source. Verify label-mega options (cheap:
+# cached 600s); keep unknown (network hiccup) - better a dead option than
+# a missing live one. gdrive/xtwap are skipped: tokens are single-use,
+# checking them would burn the link.
+_MEGA_ALIVE = {}
+_MEGA_ALIVE_TTL = 600
+
+def _mega_alive(server_url):
+  hit = _MEGA_ALIVE.get(server_url)
+  if hit and time.monotonic() - hit[0] < _MEGA_ALIVE_TTL:
+    return hit[1]
+  try:
+    cur = resolve_url(server_url, timeout=15)
+    _, fid = _mega_fid(cur)
+    if fid is None:
+      alive = False
+    else:
+      err = []
+      info = megaNZ._fetch_file_info(fid, err=err)
+      alive = info is not None or not err
+  except Exception:
+    alive = True  # unknown -> keep
+  _MEGA_ALIVE[server_url] = (time.monotonic(), alive)
+  return alive
+
+def _filter_live(options):
+  # Probe a single mega option per episode and apply its verdict to all of
+  # them: same-upload file sets usually share the same fate, and it keeps
+  # the probe to ONE MEGA API call. Non-mega options (pdrain/gdrive/xtwap)
+  # stay as-is - gdrive/xtwap tokens are single-use, can't be probed.
+  idx = [i for i, o in enumerate(options) if 'mega' in o['label'].lower()]
+  if not idx:
+    return options
+  if _mega_alive(options[idx[0]]['url']):
+    return options
+  return [o for i, o in enumerate(options) if i not in idx]
+
 class _Handler(BaseHTTPRequestHandler):
   def log_message(self, *a):
     pass
@@ -208,7 +247,7 @@ class _Handler(BaseHTTPRequestHandler):
         return self._json(200, {'episodes': _load_plugin(provider).episodes(q('url'))})
       if path == '/api/downloads':
         dl = _load_plugin(provider).downloads(q('url'))
-        options = [{'label': name, 'url': url} for name, url in _compatible_servers(dl)]
+        options = _filter_live([{'label': name, 'url': url} for name, url in _compatible_servers(dl)])
         return self._json(200, {'options': options})
       if path == '/api/jobs':
         with _jobs_lock:
@@ -297,9 +336,11 @@ class _Handler(BaseHTTPRequestHandler):
       mega_url, f_id = _mega_fid(curr)
       if f_id is None:
         return self._json(500, {'error': 'Gagal extract file ID MEGA.'})
-      stream = megaNZ.resolve_mega_file_stream(mega_url, f_id)
+      err = []
+      stream = megaNZ.resolve_mega_file_stream(mega_url, f_id, err=err)
       if stream is None:
-        return self._json(500, {'error': 'Gagal resolve stream Mega.'})
+        reason = f" ({err[0]})" if err else ''
+        return self._json(500, {'error': f'Gagal resolve stream Mega.{reason}'})
       path, ready, stop, dl_thread, bytes_counter, file_size = stream
     except Exception as e:
       return self._json(500, {'error': f'Gagal Streaming: {e}'})
@@ -331,10 +372,11 @@ class _Handler(BaseHTTPRequestHandler):
     # forwarded; when upstream serves 206, the browser can seek like the source.
     # Forward client Range → upstream so 206 + seek work (not a full 200).
     range_header = self.headers.get('Range')
-    # CDN stream-vid (gdplayer) gate requests without Referer — add it.
-    proxy_headers = {'Range': range_header} if range_header else None
+    # Always keep the browser UA — a bare {'Range': ...} dict replaces
+    # the default headers; CDNs (xtwap et al) 403 requests without a UA.
+    proxy_headers = {**HEADERS, **({'Range': range_header} if range_header else {})}
     if 'gdplayer' in url:
-      proxy_headers = {**HEADERS, **(proxy_headers or {}),
+      proxy_headers = {**proxy_headers,
                        'Referer': 'https://gdplayer.to/',
                        'Origin': 'https://gdplayer.to'}
     try:

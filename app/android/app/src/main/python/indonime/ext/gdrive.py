@@ -5,6 +5,7 @@
 # The final stream-vid URL is often WAF-gated (text/html to HEAD probes). The
 # HEAD check below keeps the app from launching mpv into a dead link.
 import base64
+import html as _html
 import json
 import re
 import urllib.parse
@@ -222,7 +223,7 @@ def _gdplayer_url(url):
   api_url = api + f'?p={ps}'
   with _open(api_url, timeout=15, method='POST', headers=hdrs, data=data) as r:
     sources = json.loads(_dcx(pd, r.read().decode()))
-  files = [s['file'] for s in sources.get('sources', []) if s.get('file')]
+  files = [_html.unescape(s['file']) for s in sources.get('sources', []) if s.get('file')]
   return files[0] if files else None
 
 
