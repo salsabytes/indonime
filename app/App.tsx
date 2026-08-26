@@ -125,40 +125,60 @@ function AppInner() {
 
   const openDetail = (item: Item | null, prov: string, url: string) => {
     setBusy('Memuat detail...')
-    Promise.all([api.info(url, prov), api.episodes(url, prov)])
+    return Promise.all([api.info(url, prov), api.episodes(url, prov)])
       .then(([info, eps]) => {
         setAnime({ item, provider: prov, url, info: info.info, episodes: eps.episodes })
         setView('anime'); setResults(null); setCands(null)
         scrollTop()
       })
-      .catch(err => setError(err.message))
+      // reraise so pickAnime can fall back to the next provider
+      .catch(err => { setError(err.message); throw err })
       .finally(() => setBusy(''))
+  }
+
+  // True only when the provider really serves sources: a live page is not
+  // enough — probe a single episode's download options (dead Mega links are
+  // already filtered server-side, so non-empty == at least one live link).
+  const tryOpen = async (item: Item, prov: string, url: string): Promise<boolean> => {
+    try {
+      const [info, eps] = await Promise.all([api.info(url, prov), api.episodes(url, prov)])
+      const list = eps.episodes || []
+      const ep = list[0]
+      let active = false
+      if (ep) {
+        const res = await api.downloads(ep.url, prov)
+        active = !!res.options?.length
+      }
+      if (!active) return false
+      setAnime({ item, provider: prov, url, info: info.info, episodes: list })
+      setView('anime'); setResults(null); setCands(null)
+      scrollTop()
+      return true
+    } catch { return false }  // page error -> provider nonaktif, coba yang lain
   }
 
   const pickAnime = async (item: Item) => {
     setBusy('Mencari sumber...')
     try {
-      if (item.url) {  // shape Rilis Terbaru: url provider langsung
-        const prov = item.url.includes('otakudesu') ? 'otakudesu' : 'anoboy'
-        return openDetail(item, prov, item.url)
+      const direct = item.url ? [{
+        prov: item.url.includes('otakudesu') ? 'otakudesu' : 'anoboy',
+        url: item.url,
+      }] : []
+      // Rilis Terbaru: coba url langsung dulu, resolve jadi fallback
+      for (const d of direct) {
+        if (await tryOpen(item, d.prov, d.url)) return
       }
-      const { sources, candidates } = await api.resolve(item.id!, item.title)
+      // multi-provider: search semua provider, gap-fill yang sukses
+      const { sources, candidates } = await api.resolve(item.id ?? '', item.title)
       for (const [prov, url] of Object.entries(sources)) {
-        // gap-fill: provider pertama yang sukses; gagal → coba berikutnya
-        try {
-          const [info, eps] = await Promise.all([api.info(url, prov), api.episodes(url, prov)])
-          setAnime({ item, provider: prov, url, info: info.info, episodes: eps.episodes })
-          setView('anime'); setResults(null); setCands(null)
-          scrollTop()
-          return
-        } catch { /* coba provider lain */ }
+        if (await tryOpen(item, prov, url)) return
       }
-      setCands(candidates)  // resolve kosong / semua gagal → pilih manual
+      setCands(candidates)  // semua provider tanpa sumber aktif -> pilih manual
     } catch (err) { setError(eMsg(err)) }
     finally { setBusy('') }
   }
 
-  const pickCandidate = (prov: string, url: string) => openDetail(null, prov, url)
+  const pickCandidate = (prov: string, url: string) => openDetail(null, prov, url).catch(() => {})
 
   const handlePlay = async (url: string, label: string) => {
     // Langsung pindah ke halaman nonton — loading resolve stream di player.
