@@ -22,12 +22,28 @@ def mega_base64_decode(data):
   return base64.urlsafe_b64decode(data)
 
 
-# Extract the file ID from a MEGA URL. Handles the #! format. Returns (clean_url, f_id).
 def _mega_fid(url):
-  clean = url.replace("#!", "file/").replace("!", "#", 1) if "#!" in url else url
+  """Extract clean URL and file ID from MEGA link."""
   try:
-    return clean, clean.split("file/")[1].split("#")[0]
-  except IndexError:
+    parsed = urllib.parse.urlsplit(url)
+    path = parsed.path.lstrip('/')
+    # New format: /file/<id>#<key>  (id in path, key in fragment)
+    if path.startswith('file/'):
+      file_id = path.split('/')[1]
+      if not file_id:
+        return None, None
+      return url, file_id
+    # Legacy format: #!<id>!<key>  (id + key in fragment)
+    frag = parsed.fragment
+    if frag:
+      parts = [p for p in frag.split('!') if p]
+      if len(parts) >= 2:
+        file_id = parts[0]
+        key = parts[-1]
+        clean = f'{parsed.scheme}://{parsed.netloc}/file/{file_id}#{key}'
+        return clean, file_id
+    return None, None
+  except Exception:
     return None, None
 
 
