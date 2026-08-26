@@ -45,18 +45,23 @@ def _score(a, b):
   return jaccard + 0.3 * (len(sa - sb) == 0)  # bonus: seluruh token judul pendek cocok
 
 
+def _search_all(plugin_list, title):
+  """Search all providers in parallel, return {name: [hits]}."""
+  with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(plugin_list), 8)) as ex:
+    futures = {ex.submit(p.search_anime, title): name for name, p in plugin_list}
+    results = {}
+    for f in concurrent.futures.as_completed(futures):
+      results[futures[f]] = f.result()
+  return results
+
+
 def resolve(plugin_list, title, min_score=0.45):
   # plugin_list: [(name, plugin), ...] fallback order. Return {provider: url}
   # for every match; empty when nothing matches.
   key = title
   if key in _map:
     return _map[key]
-  # search all providers in parallel
-  with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(plugin_list), 8)) as ex:
-    futures = {ex.submit(p.search_anime, title): name for name, p in plugin_list}
-    results = {}
-    for f in concurrent.futures.as_completed(futures):
-      results[futures[f]] = f.result()
+  results = _search_all(plugin_list, title)
   out = {}
   for name, _ in plugin_list:
     hits = results.get(name) or []
@@ -73,12 +78,7 @@ def resolve(plugin_list, title, min_score=0.45):
 def candidates(plugin_list, title):
   # All provider search results → UI can show a manual list (when resolve
   # comes up empty or the user wants to pick).
-  # search all providers in parallel
-  with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(plugin_list), 8)) as ex:
-    futures = {ex.submit(p.search_anime, title): name for name, p in plugin_list}
-    results = {}
-    for f in concurrent.futures.as_completed(futures):
-      results[futures[f]] = f.result()
+  results = _search_all(plugin_list, title)
   # merge results in plugin_list order
   out = []
   for name, _ in plugin_list:
