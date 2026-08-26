@@ -47,6 +47,12 @@ export const Ic: Record<string, Icon> = {
       <Path d="m12 19-7-7 7-7" />
     </Svg>
   ),
+  forward: ({ color, size = 18 }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" {...S(color)} strokeLinejoin="round">
+      <Path d="M5 12h14" />
+      <Path d="m12 5 7 7-7 7" />
+    </Svg>
+  ),
   home: ({ color, size = 18 }) => (
     <Svg width={size} height={size} viewBox="0 0 24 24" {...S(color)} strokeLinejoin="round">
       <Path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />

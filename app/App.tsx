@@ -68,6 +68,7 @@ function AppInner() {
   const [anime, setAnime] = useState<AnimeState | null>(null)
   const [stream, setStream] = useState<string | null>(null)
   const [streamError, setStreamError] = useState<string | null>(null)
+  const [currentEpIdx, setCurrentEpIdx] = useState<number | null>(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
@@ -180,11 +181,28 @@ function AppInner() {
 
   const pickCandidate = (prov: string, url: string) => openDetail(null, prov, url).catch(() => {})
 
-  const handlePlay = async (url: string, label: string) => {
+  const handlePlay = async (url: string, label: string, epIdx?: number) => {
     // Langsung pindah ke halaman nonton — loading resolve stream di player.
+    if (epIdx !== undefined) setCurrentEpIdx(epIdx)
     setView('player'); setStream(null); setStreamError(null); scrollTop()
     try {
       const r = await api.play(url, label)
+      if (r.stream) setStream(r.stream.startsWith('http') ? r.stream : (await resolveBase()) + r.stream)
+      else setStreamError(r.error || 'Gagal memutar')
+    } catch (err) { setStreamError(eMsg(err)) }
+  }
+
+  // Auto-play episode by index (prev/next nav)
+  const playEp = async (idx: number) => {
+    if (!anime || idx < 0 || idx >= anime.episodes.length) return
+    const ep = anime.episodes[idx]
+    setCurrentEpIdx(idx)
+    setView('player'); setStream(null); setStreamError(null); scrollTop()
+    try {
+      const res = await api.downloads(ep.url, anime.provider)
+      const opt = res.options?.[0]
+      if (!opt) { setStreamError('Tidak ada server tersedia'); return }
+      const r = await api.play(opt.url, opt.label)
       if (r.stream) setStream(r.stream.startsWith('http') ? r.stream : (await resolveBase()) + r.stream)
       else setStreamError(r.error || 'Gagal memutar')
     } catch (err) { setStreamError(eMsg(err)) }
@@ -218,7 +236,8 @@ function AppInner() {
                      onDownload={handleDownload} onBack={goHome} />
         )}
         {view === 'player' && (
-          <PlayerView stream={stream} error={streamError} onBack={() => setView('anime')} />
+          <PlayerView stream={stream} error={streamError} onBack={() => setView('anime')}
+                      episodes={anime?.episodes || []} currentEpIdx={currentEpIdx} onPlayEp={playEp} />
         )}
         {view === 'home' && <Footer onJump={label => scrollRef.current?.scrollTo({ y: sectionY[label] || 0, animated: true })} />}
       </ScrollView>
@@ -881,7 +900,7 @@ function ResSelect({ options, value, onChange }: ResSelectProps) {
 
 interface AnimeViewProps {
   anime: AnimeState
-  onPlay: (url: string, label: string) => void
+  onPlay: (url: string, label: string, epIdx: number) => void
   onDownload: (opt: DownloadOpt, ep: Ep) => void
   onBack: () => void
 }
@@ -899,11 +918,13 @@ function AnimeView({ anime, onPlay, onDownload, onBack }: AnimeViewProps) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [sel, setSel] = useState<Record<string, string>>({})
+  const [pickedEpIdx, setPickedEpIdx] = useState<number>(0)
   const item = anime.item || ({} as Item)
   const { info, episodes, provider } = anime
   const title = info.title || item.title || ''
 
-  const pick = async (ep: Ep) => {
+  const pick = async (ep: Ep, idx: number) => {
+    setPickedEpIdx(idx)
     setBusy(true); setErr(null); setOpts(null)
     try { setOpts({ ep, options: (await api.downloads(ep.url, provider)).options }) }
     catch (e) { setErr(eMsg(e)) }
@@ -956,7 +977,7 @@ function AnimeView({ anime, onPlay, onDownload, onBack }: AnimeViewProps) {
             {!!item.year && <View style={s.pill}><Text style={s.pillText}>{item.year}</Text></View>}
           </View>
           <View style={s.detailActions}>
-            <Btn primary disabled={!episodes.length} onPress={() => episodes[0] && pick(episodes[0])}
+            <Btn primary disabled={!episodes.length} onPress={() => episodes[0] && pick(episodes[0], 0)}
                  icon={<Ic.playLg color={C.white} size={20} />}>Putar Episode 1</Btn>
             <Btn ghost onPress={onBack} icon={<Ic.home color={C.fg} size={18} />}>Beranda</Btn>
           </View>
@@ -967,7 +988,7 @@ function AnimeView({ anime, onPlay, onDownload, onBack }: AnimeViewProps) {
       {/* eps: auto-fill grid (flex-wrap, min 260px) — semua ukuran layar */}
       <View style={s.eps}>
         {episodes.map((ep, i) => (
-          <Pressable key={ep.url} style={({ pressed }) => [s.ep, pressed && { backgroundColor: C.card2 }]} onPress={() => pick(ep)}>
+          <Pressable key={ep.url} style={({ pressed }) => [s.ep, pressed && { backgroundColor: C.card2 }]} onPress={() => pick(ep, i)}>
             <Text style={s.epNum}>{String(i + 1).padStart(2, '0')}</Text>
             <Text style={s.epTitle} numberOfLines={1}>{ep.title}</Text>
             <Ic.play color={C.muted} size={16} />
@@ -1008,7 +1029,7 @@ function AnimeView({ anime, onPlay, onDownload, onBack }: AnimeViewProps) {
                       <Text style={s.optGroupTitle}>{g.res}</Text>
                       <ResSelect options={g.options} value={cur} onChange={v => setSel(prev => ({ ...prev, [g.res]: v }))} />
                       <View style={[s.optBtns, !desktop && { width: '100%' }]}>
-                        <Btn play small onPress={() => onPlay(cur, picked.label)} icon={<Ic.playLg color={C.white} size={16} />}>Play</Btn>
+                        <Btn play small onPress={() => onPlay(cur, picked.label, pickedEpIdx)} icon={<Ic.playLg color={C.white} size={16} />}>Play</Btn>
                         <Btn ghost small onPress={() => onDownload({ url: cur, label: picked.label }, opts.ep)} icon={<Ic.down color={C.fg} size={16} />}>Download</Btn>
                       </View>
                     </View>
@@ -1029,9 +1050,17 @@ interface PlayerViewProps {
   stream: string | null
   error: string | null
   onBack: () => void
+  episodes: Ep[]
+  currentEpIdx: number | null
+  onPlayEp: (idx: number) => void
 }
 
-function PlayerView({ stream, error, onBack }: PlayerViewProps) {
+function PlayerView({ stream, error, onBack, episodes, currentEpIdx, onPlayEp }: PlayerViewProps) {
+  const hasPrev = (currentEpIdx ?? 0) > 0
+  const hasNext = currentEpIdx !== null && currentEpIdx < episodes.length - 1
+  const ep = currentEpIdx !== null ? episodes[currentEpIdx] : null
+  const loading = !stream && !error
+
   return (
     <View style={[s.wrap, s.pagePad, s.player]}>
       <Btn ghost style={s.back} onPress={onBack} icon={<Ic.back color={C.fg} size={18} />}>Kembali</Btn>
@@ -1045,6 +1074,17 @@ function PlayerView({ stream, error, onBack }: PlayerViewProps) {
             </View>
           )
           : <VideoCore stream={stream} />}
+      {episodes.length > 1 && currentEpIdx !== null && (
+        <View style={s.epNav}>
+          <Btn ghost small disabled={loading || !hasPrev}
+               onPress={() => onPlayEp(currentEpIdx - 1)}
+               icon={<Ic.back color={hasPrev ? C.fg : C.muted} size={16} />}>Prev</Btn>
+          <Text style={s.epNavTitle} numberOfLines={1}>Ep {currentEpIdx + 1} — {ep?.title || ''}</Text>
+          <Btn ghost small disabled={loading || !hasNext}
+               onPress={() => onPlayEp(currentEpIdx + 1)}
+               icon={<Ic.forward color={hasNext ? C.fg : C.muted} size={16} />}>Next</Btn>
+        </View>
+      )}
       <Text style={[s.hint, { textAlign: 'center', paddingVertical: 40 }]}>Video tidak muncul? Coba resolusi atau server lain.</Text>
     </View>
   )

@@ -281,6 +281,15 @@ export const s = StyleSheet.create({
     boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
   },
 
+  epNav: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 10, marginTop: 8, gap: 8,
+  },
+  epNavTitle: {
+    fontFamily: F.bodyMed, fontSize: 13, color: C.fgDim,
+    textAlign: 'center', flex: 1,
+  },
+
   // ── Toasts / busy / jobs ──────────────────────────────
   toast: {
     position: 'absolute', top: 76, alignSelf: 'center', zIndex: 100, maxWidth: '92%',
