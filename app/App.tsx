@@ -1092,6 +1092,31 @@ function PlayerView({ stream, error, onBack, episodes, currentEpIdx, onPlayEp }:
                icon={<Ic.forward color={hasNext ? C.fg : C.muted} size={16} />}>Next</Btn>
         </View>
       )}
+      {episodes.length > 1 && currentEpIdx !== null && (
+        <View style={{ marginTop: 24, gap: 12 }}>
+          <SectionTitle icon={<Ic.playLg color={C.primary2} />}>Episode Lainnya</SectionTitle>
+          <View style={{ gap: 6 }}>
+            {episodes
+              .map((ep, i) => ({ ep, i }))
+              .filter(({ i }) => i !== currentEpIdx)
+              .map(({ ep, i }) => (
+                <Pressable
+                  key={ep.url}
+                  style={({ pressed }) => [
+                    s.ep,
+                    { flexGrow: 0, flexBasis: 'auto' },
+                    pressed && { backgroundColor: C.card2 },
+                  ]}
+                  onPress={() => onPlayEp(i)}
+                >
+                  <Text style={s.epNum}>{String(i + 1).padStart(2, '0')}</Text>
+                  <Text style={s.epTitle} numberOfLines={1}>{ep.title}</Text>
+                  <Ic.play color={C.muted} size={16} />
+                </Pressable>
+              ))}
+          </View>
+        </View>
+      )}
       <Text style={[s.hint, { textAlign: 'center', paddingVertical: 40 }]}>Video tidak muncul? Coba resolusi atau server lain.</Text>
     </View>
   )
