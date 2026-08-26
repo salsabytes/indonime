@@ -38,10 +38,11 @@ _ALLOWED_HOST_RE = (
   r'(?:[\w-]+\.)*gdplayer\.to|link\.desustream\.com'
   r')(?::\d+)?(?:[/?#].*)?)$'
 )
+_ALLOWED_RE = re.compile(_ALLOWED_HOST_RE, re.IGNORECASE)
 
 def _url_allowed(url):
   # Used for redirect hops; the primary fetch guard is inlined in _open below.
-  return re.compile(_ALLOWED_HOST_RE, re.IGNORECASE).fullmatch(url) is not None
+  return _ALLOWED_RE.fullmatch(url) is not None
 
 # Redirect hops re-checked against the allowlist — urlopen follows redirects
 # automatically, so a host allowed for the first request must not be able to
@@ -58,7 +59,7 @@ def _open(url, timeout, method=None, headers=None, data=None):
   # `if not ...fullmatch(url)` (not `is None`) — CodeQL only sees through
   # not-expression guards; `is None` makes the guard a comparison node, not a
   # call, so the barrier isn't recognized.
-  if not re.compile(_ALLOWED_HOST_RE, re.IGNORECASE).fullmatch(url):
+  if not _ALLOWED_RE.fullmatch(url):
     raise ValueError(f"URL diblokir: {url}")
   req = urllib.request.Request(url, data=data, headers=headers or HEADERS, method=method)
   return _opener.open(req, timeout=timeout)
