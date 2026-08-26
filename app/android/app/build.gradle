@@ -20,6 +20,9 @@ chaquopy {
             install "tuiko"
         }
     }
+    sourceSets {
+        python.srcDir(new File(projectRoot, '../indonime'))
+    }
 }
 
 /**
