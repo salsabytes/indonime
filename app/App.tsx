@@ -192,7 +192,7 @@ function AppInner() {
     } catch (err) { setStreamError(eMsg(err)) }
   }
 
-  // Auto-play episode by index (prev/next nav)
+  // Auto-play episode by index (prev/next nav) — try options until one streams
   const playEp = async (idx: number) => {
     if (!anime || idx < 0 || idx >= anime.episodes.length) return
     const ep = anime.episodes[idx]
@@ -200,11 +200,18 @@ function AppInner() {
     setView('player'); setStream(null); setStreamError(null); scrollTop()
     try {
       const res = await api.downloads(ep.url, anime.provider)
-      const opt = res.options?.[0]
-      if (!opt) { setStreamError('Tidak ada server tersedia'); return }
-      const r = await api.play(opt.url, opt.label)
-      if (r.stream) setStream(r.stream.startsWith('http') ? r.stream : (await resolveBase()) + r.stream)
-      else setStreamError(r.error || 'Gagal memutar')
+      const opts = res.options || []
+      if (!opts.length) { setStreamError('Tidak ada server tersedia'); return }
+      for (const opt of opts) {
+        try {
+          const r = await api.play(opt.url, opt.label)
+          if (r.stream) {
+            setStream(r.stream.startsWith('http') ? r.stream : (await resolveBase()) + r.stream)
+            return
+          }
+        } catch { /* coba option berikut */ }
+      }
+      setStreamError('Semua server gagal. Coba lagi nanti.')
     } catch (err) { setStreamError(eMsg(err)) }
   }
 
