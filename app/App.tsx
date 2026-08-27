@@ -231,7 +231,7 @@ function AppInner() {
       <Topbar query={query} setQuery={setQuery} onSubmit={submit} onHome={goHome} />
 
       {view === 'list' ? (
-        <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 8 }}>
+        <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}>
           <Pressable style={[s.btn, s.btnGhost, { alignSelf: 'flex-start', height: 36, marginBottom: 8 }]}
                      onPress={goHome} hitSlop={8}>
             <Ic.back color={C.fg} size={18} />
@@ -807,7 +807,7 @@ function AlphaGrid({ onPick, fullPage, onOpenList }: AlphaGridProps) {
   const showFade = !fullPage && !expanded && maxH > 0 && items.length > cols * ROWS
 
   const sortChips = (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View style={s.chips}>
         {SORT_MODES.map(m => (
           <Pressable key={m.key} onPress={() => setSort(m.key)}
