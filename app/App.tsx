@@ -730,8 +730,11 @@ interface CardProps {
 }
 
 function Card({ item, badge, sub, meta, i, onPick, style }: CardProps) {
+  const [hovered, setHovered] = useState(false)
   return (
-    <Pressable style={[s.card, style]} onPress={() => onPick(item)}>
+    <Pressable style={({ pressed }) => [s.card, style, (pressed || hovered) && { transform: [{ scale: 0.97 }] }]}
+               onPress={() => onPick(item)}
+               onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)}>
       <View style={s.cardPoster}>
         <Poster item={item} />
         {badge && (
@@ -776,8 +779,11 @@ interface RankCardProps {
 }
 
 function RankCard({ item, i, onPick }: RankCardProps) {
+  const [hovered, setHovered] = useState(false)
   return (
-    <Pressable style={s.rankCard} onPress={() => onPick(item)}>
+    <Pressable style={({ pressed }) => [s.rankCard, (pressed || hovered) && { transform: [{ scale: 0.97 }] }]}
+               onPress={() => onPick(item)}
+               onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)}>
       <GradText style={s.popRank} size={26} center colors={[C.primary2, C.accent]} horizontal={false}>
         {String(i + 1).padStart(2, '0')}
       </GradText>
