@@ -905,7 +905,7 @@ function AlphaGrid({ onPick, fullPage }: AlphaGridProps) {
         </View>
       )}
       {!expanded && !loadingMore && hasMore && items.length >= cols * ROWS && (
-        <Pressable onPress={loadMore} style={[s.hintCenter, { paddingVertical: 16 }]}>
+        <Pressable onPress={() => setExpanded(true)} style={[s.hintCenter, { paddingVertical: 16 }]}>
           <Text style={[s.hint, { color: C.primary2, textAlign: 'center' }]}>Lihat Semua →</Text>
         </Pressable>
       )}
