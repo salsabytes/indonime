@@ -857,6 +857,7 @@ function AlphaGrid({ onPick, fullPage, onOpenList }: AlphaGridProps) {
                     }}
                     scrollEventThrottle={200}>
           <SectionTitle icon={<Ic.star color={C.primary2} />}>Daftar Anime</SectionTitle>
+          <View style={{ height: 12 }} />
           {sortChips}
           <View style={gridStyle}>
             {items.map((it, i) => (
