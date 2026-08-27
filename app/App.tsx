@@ -766,7 +766,7 @@ function AlphaGrid({ onPick, fullPage, onOpenList, onBack }: AlphaGridProps) {
   const min = width <= 480 ? 120 : 160
   const cols = Math.max(1, Math.floor((cw + gap) / (min + gap)))
   const cardW = (cw - gap * (cols - 1)) / cols
-  const gridStyle = [s.grid, { columnGap: gap, rowGap: gap }]
+  const gridStyle = [s.grid, { columnGap: gap, rowGap: gap, marginTop: fullPage ? 4 : 16 }]
 
   // Reset on sort change
   useEffect(() => {
@@ -847,7 +847,7 @@ function AlphaGrid({ onPick, fullPage, onOpenList, onBack }: AlphaGridProps) {
     return (
       <View style={{ flex: 1 }}>
         {/* Header: back + title in one row */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
           {onBack && (
             <Pressable onPress={onBack} hitSlop={8} style={{ padding: 4 }}>
               <Ic.back color={C.fgDim} size={20} />
