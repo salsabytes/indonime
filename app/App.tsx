@@ -732,7 +732,7 @@ interface CardProps {
 function Card({ item, badge, sub, meta, i, onPick, style }: CardProps) {
   const [hovered, setHovered] = useState(false)
   return (
-    <Pressable style={({ pressed }) => [s.card, style, (pressed || hovered) && { transform: [{ scale: 0.97 }] }]}
+    <Pressable style={({ pressed }) => [s.card, style, Platform.OS === 'web' && { transition: 'transform 0.2s ease' }, (pressed || hovered) && { transform: [{ scale: 0.97 }] }]}
                onPress={() => onPick(item)}
                onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)}>
       <View style={s.cardPoster}>
@@ -781,7 +781,7 @@ interface RankCardProps {
 function RankCard({ item, i, onPick }: RankCardProps) {
   const [hovered, setHovered] = useState(false)
   return (
-    <Pressable style={({ pressed }) => [s.rankCard, (pressed || hovered) && { transform: [{ scale: 0.97 }] }]}
+    <Pressable style={({ pressed }) => [s.rankCard, Platform.OS === 'web' && { transition: 'transform 0.2s ease' }, (pressed || hovered) && { transform: [{ scale: 0.97 }] }]}
                onPress={() => onPick(item)}
                onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)}>
       <GradText style={s.popRank} size={26} center colors={[C.primary2, C.accent]} horizontal={false}>
@@ -857,6 +857,7 @@ function Btn({ primary, play, ghost, small, disabled, onPress, icon, children, s
                  s.btn, small && s.btnSmall,
                  primary ? s.btnPrimary : play ? s.btnPlay : s.btnGhost,
                  Platform.OS === 'web' && { zIndex: 0 },
+                 Platform.OS === 'web' && { transition: 'transform 0.2s ease' },
                  disabled && s.btnDisabled,
                  pressed && { transform: [{ scale: 0.97 }] },
                  style,
