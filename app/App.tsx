@@ -249,7 +249,7 @@ function AppInner() {
                     genres={genres} genre={genre} onGenrePick={pickGenre}
                     genreItems={genreItems} genreLoading={genreLoading}
                     results={results} searching={searching} query={query}
-                    onPick={pickAnime} scrollRef={scrollRef} />
+                    onPick={pickAnime} scrollRef={scrollRef} onOpenList={() => setView('list')} />
         )}
         {view === 'anime' && anime && (
           <AnimeView anime={anime} onPlay={handlePlay}
@@ -407,9 +407,10 @@ interface HomeViewProps {
   query: string
   onPick: (item: Item) => void
   scrollRef: RefObject<ScrollView | null>
+  onOpenList: () => void
 }
 
-function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItems, genreLoading, results, searching, query, onPick, scrollRef }: HomeViewProps) {
+function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItems, genreLoading, results, searching, query, onPick, scrollRef, onOpenList }: HomeViewProps) {
   const { desktop, width } = useBrk()
   // grid web: base auto-fill minmax(160px,1fr) gap 18; ≤480px: minmax(120px,1fr) gap 12
   // container dibatasi wrap max-width 1200 (web .wrap)
@@ -499,7 +500,7 @@ function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItem
           </Rail>
         </View>
 
-        <AlphaGrid onPick={onPick} />
+        <AlphaGrid onPick={onPick} onOpenList={onOpenList} />
       </View>
     </>
   )
@@ -748,9 +749,10 @@ const SORT_MODES = [
 interface AlphaGridProps {
   onPick: (item: Item) => void
   fullPage?: boolean
+  onOpenList?: () => void
 }
 
-function AlphaGrid({ onPick, fullPage }: AlphaGridProps) {
+function AlphaGrid({ onPick, fullPage, onOpenList }: AlphaGridProps) {
   const { width } = useBrk()
   const [sort, setSort] = useState('popular')
   const [items, setItems] = useState<Item[]>([])
@@ -907,7 +909,7 @@ function AlphaGrid({ onPick, fullPage }: AlphaGridProps) {
         </View>
       )}
       {!expanded && !loadingMore && hasMore && items.length >= cols * ROWS && (
-        <Pressable onPress={() => setExpanded(true)} style={[s.hintCenter, { paddingVertical: 16 }]}>
+        <Pressable onPress={onOpenList} style={[s.hintCenter, { paddingVertical: 16 }]}>
           <Text style={[s.hint, { color: C.primary2, textAlign: 'center' }]}>Lihat Semua →</Text>
         </Pressable>
       )}
