@@ -231,13 +231,8 @@ function AppInner() {
       <Topbar query={query} setQuery={setQuery} onSubmit={submit} onHome={goHome} />
 
       {view === 'list' ? (
-        <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}>
-          <Pressable style={[s.btn, s.btnGhost, { alignSelf: 'flex-start', height: 36, marginBottom: 8 }]}
-                     onPress={goHome} hitSlop={8}>
-            <Ic.back color={C.fg} size={18} />
-            <Text style={s.btnGhostText}>Kembali</Text>
-          </Pressable>
-          <AlphaGrid onPick={pickAnime} fullPage />
+        <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 12 }}>
+          <AlphaGrid onPick={pickAnime} fullPage onBack={goHome} />
         </View>
       ) : (
       <ScrollView ref={scrollRef} style={s.scroll} keyboardShouldPersistTaps="handled"
@@ -748,9 +743,10 @@ interface AlphaGridProps {
   onPick: (item: Item) => void
   fullPage?: boolean
   onOpenList?: () => void
+  onBack?: () => void
 }
 
-function AlphaGrid({ onPick, fullPage, onOpenList }: AlphaGridProps) {
+function AlphaGrid({ onPick, fullPage, onOpenList, onBack }: AlphaGridProps) {
   const { width } = useBrk()
   const [sort, setSort] = useState('popular')
   const [items, setItems] = useState<Item[]>([])
@@ -846,19 +842,27 @@ function AlphaGrid({ onPick, fullPage, onOpenList }: AlphaGridProps) {
     )
   }
 
-  // Full page: ScrollView + grid (FlatList numColumns unreliable on RN web)
+  // Full page: header outside scroll, chips+grid inside scroll
   if (fullPage) {
     return (
       <View style={{ flex: 1 }}>
+        {/* Header: back + title in one row */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          {onBack && (
+            <Pressable onPress={onBack} hitSlop={8} style={{ padding: 4 }}>
+              <Ic.back color={C.fgDim} size={20} />
+            </Pressable>
+          )}
+          <Ic.star color={C.primary2} size={18} />
+          <Text style={s.sectionTitle}>Daftar Anime</Text>
+        </View>
+        {sortChips}
         <ScrollView ref={scrollRef2} style={{ flex: 1 }} showsVerticalScrollIndicator={false}
                     onScroll={e => {
                       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
                       if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 300) loadMore()
                     }}
                     scrollEventThrottle={200}>
-          <SectionTitle icon={<Ic.star color={C.primary2} />}>Daftar Anime</SectionTitle>
-          <View style={{ height: 12 }} />
-          {sortChips}
           <View style={gridStyle}>
             {items.map((it, i) => (
               <Card key={it.id} item={it} i={i} onPick={onPick}
