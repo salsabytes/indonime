@@ -231,15 +231,13 @@ function AppInner() {
       <Topbar query={query} setQuery={setQuery} onSubmit={submit} onHome={goHome} />
 
       {view === 'list' ? (
-        <View style={{ flex: 1 }}>
-          <View style={[s.wrap, s.pagePad, { flex: 1 }]}>
-            <Pressable style={[s.btn, s.btnGhost, { alignSelf: 'flex-start', marginBottom: 20 }]}
-                       onPress={goHome} hitSlop={8}>
-              <Ic.back color={C.fg} size={18} />
-              <Text style={s.btnGhostText}>Kembali</Text>
-            </Pressable>
-            <AlphaGrid onPick={pickAnime} fullPage />
-          </View>
+        <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 8 }}>
+          <Pressable style={[s.btn, s.btnGhost, { alignSelf: 'flex-start', height: 36, marginBottom: 8 }]}
+                     onPress={goHome} hitSlop={8}>
+            <Ic.back color={C.fg} size={18} />
+            <Text style={s.btnGhostText}>Kembali</Text>
+          </Pressable>
+          <AlphaGrid onPick={pickAnime} fullPage />
         </View>
       ) : (
       <ScrollView ref={scrollRef} style={s.scroll} keyboardShouldPersistTaps="handled"
@@ -852,14 +850,14 @@ function AlphaGrid({ onPick, fullPage, onOpenList }: AlphaGridProps) {
   if (fullPage) {
     return (
       <View style={{ flex: 1 }}>
-        <SectionTitle icon={<Ic.star color={C.primary2} />}>Daftar Anime</SectionTitle>
-        {sortChips}
         <ScrollView ref={scrollRef2} style={{ flex: 1 }} showsVerticalScrollIndicator={false}
                     onScroll={e => {
                       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
                       if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 300) loadMore()
                     }}
                     scrollEventThrottle={200}>
+          <SectionTitle icon={<Ic.star color={C.primary2} />}>Daftar Anime</SectionTitle>
+          {sortChips}
           <View style={gridStyle}>
             {items.map((it, i) => (
               <Card key={it.id} item={it} i={i} onPick={onPick}
