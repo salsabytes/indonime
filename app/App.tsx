@@ -4,7 +4,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ReactNode, RefObject } from 'react'
 import {
-  Animated, BackHandler, Modal, Platform, Pressable, ScrollView,
+  Animated, BackHandler, FlatList, Modal, Platform, Pressable, ScrollView,
   StatusBar as RNStatusBar, StyleSheet, Text, TextInput, useWindowDimensions, View,
 } from 'react-native'
 import type { ImageStyle, NativeScrollEvent, NativeSyntheticEvent, StyleProp, TextStyle, ViewStyle } from 'react-native'
@@ -29,7 +29,7 @@ const BRK = 900 // breakpoint web @media (max-width: 900px)
 const Brk = createContext({ desktop: false, width: 0 })
 const useBrk = () => useContext(Brk)
 
-type ViewName = 'home' | 'anime' | 'player'
+type ViewName = 'home' | 'anime' | 'player' | 'list'
 
 interface AnimeState {
   item: Item | null
@@ -95,6 +95,7 @@ function AppInner() {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (view === 'player') { setView('anime'); return true }
       if (view === 'anime') { goHome(); return true }
+      if (view === 'list') { goHome(); return true }
       return false
     })
     return () => sub.remove()
@@ -229,6 +230,18 @@ function AppInner() {
 
       <Topbar query={query} setQuery={setQuery} onSubmit={submit} onHome={goHome} />
 
+      {view === 'list' ? (
+        <View style={{ flex: 1 }}>
+          <View style={[s.wrap, s.pagePad, { flex: 1 }]}>
+            <Pressable style={[s.btn, s.btnGhost, { alignSelf: 'flex-start', marginBottom: 20 }]}
+                       onPress={goHome} hitSlop={8}>
+              <Ic.back color={C.fg} size={18} />
+              <Text style={s.btnGhostText}>Kembali</Text>
+            </Pressable>
+            <AlphaGrid onPick={pickAnime} fullPage />
+          </View>
+        </View>
+      ) : (
       <ScrollView ref={scrollRef} style={s.scroll} keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}>
         {view === 'home' && (
@@ -246,8 +259,9 @@ function AppInner() {
           <PlayerView stream={stream} error={streamError} onBack={() => setView('anime')}
                       episodes={anime?.episodes || []} currentEpIdx={currentEpIdx} onPlayEp={playEp} />
         )}
-        {view === 'home' && <Footer onJump={label => scrollRef.current?.scrollTo({ y: sectionY[label] || 0, animated: true })} />}
+        {view === 'home' && <Footer onJump={label => scrollRef.current?.scrollTo({ y: sectionY[label] || 0, animated: true })} onNavigate={setView} />}
       </ScrollView>
+      )}
 
       {!!error && (
         <View style={[s.toast, s.errorToast]}>
@@ -484,6 +498,8 @@ function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItem
               : top.slice(0, 8).map((it, i) => <RankCard key={it.id} item={it} i={i} onPick={onPick} />)}
           </Rail>
         </View>
+
+        <AlphaGrid onPick={onPick} />
       </View>
     </>
   )
@@ -716,6 +732,184 @@ function GenreChips({ genres, active, onPick }: GenreChipsProps) {
         ))}
       </View>
     </ScrollView>
+  )
+}
+
+/* ── Browse grid (sort options + infinite scroll) ──────── */
+
+const SORT_MODES = [
+  { key: 'popular',  label: 'Paling Populer' },
+  { key: 'rating',   label: 'Rating Tertinggi' },
+  { key: 'latest',   label: 'Terbaru' },
+  { key: 'alpha',    label: 'A → Z' },
+  { key: 'alpha_desc', label: 'Z → A' },
+]
+
+interface AlphaGridProps {
+  onPick: (item: Item) => void
+  fullPage?: boolean
+}
+
+function AlphaGrid({ onPick, fullPage }: AlphaGridProps) {
+  const { width } = useBrk()
+  const [sort, setSort] = useState('popular')
+  const [items, setItems] = useState<Item[]>([])
+  const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
+  const [expanded, setExpanded] = useState(false)
+
+  const PAGE_SIZE = 50
+  const ROWS = 3
+
+  // grid sizing (reuse HomeView pattern)
+  const cw = Math.min(width, 1200) - 40
+  const gap = width <= 480 ? 12 : 18
+  const min = width <= 480 ? 120 : 160
+  const cols = Math.max(1, Math.floor((cw + gap) / (min + gap)))
+  const cardW = (cw - gap * (cols - 1)) / cols
+  const gridStyle = [s.grid, { columnGap: gap, rowGap: gap }]
+
+  // Reset on sort change
+  useEffect(() => {
+    let alive = true
+    setItems([]); setLoading(true); setPage(1); setHasMore(true); setExpanded(false)
+    api.discover('alpha', 'sort=' + sort + '&page=1')
+      .then(r => { if (alive) { setItems(r.items ?? []); setHasMore((r.items?.length ?? 0) >= PAGE_SIZE) } })
+      .catch(() => {})
+      .finally(() => alive && setLoading(false))
+    return () => { alive = false }
+  }, [sort])
+
+  // Pagination
+  useEffect(() => {
+    if (page <= 1) return
+    let alive = true
+    setLoadingMore(true)
+    api.discover('alpha', 'sort=' + sort + '&page=' + page)
+      .then(r => {
+        if (!alive) return
+        setItems(prev => [...prev, ...(r.items ?? [])])
+        setHasMore((r.items?.length ?? 0) >= PAGE_SIZE)
+      })
+      .catch(() => {})
+      .finally(() => alive && setLoadingMore(false))
+    return () => { alive = false }
+  }, [page])
+
+  const loadMore = () => { if (hasMore && !loadingMore && !loading) setPage(p => p + 1) }
+
+  // Collapsed height: 3 rows
+  const rowH = cardW * 1.5 + gap + 32 // poster aspect 2:3 + body text + gap
+  const maxH = fullPage || expanded ? 0 : rowH * ROWS
+  const showFade = !fullPage && !expanded && maxH > 0 && items.length > cols * ROWS
+
+  const renderItem = ({ item, index }: { item: Item; index: number }) => (
+    <Card key={item.id} item={item} i={index} onPick={onPick}
+          style={{ width: cardW }}
+          meta={`${item.score ? '★ ' + item.score : ''}${item.year ? ' · ' + item.year : ''}`} />
+  )
+
+  const sortChips = (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+      <View style={s.chips}>
+        {SORT_MODES.map(m => (
+          <Pressable key={m.key} onPress={() => setSort(m.key)}
+                     style={[s.chip, m.key === sort && { boxShadow: '0 4px 16px rgba(124,58,237,0.4)' }]}
+                     accessibilityRole="button" accessibilityState={{ selected: m.key === sort }}>
+            {m.key === sort && (
+              <LinearGradient colors={[C.primary, C.primaryV2]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, Platform.OS === 'web' && { zIndex: -1 }]} />
+            )}
+            <Text style={m.key === sort ? s.chipOnText : s.chipText}>{m.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </ScrollView>
+  )
+
+  if (loading) {
+    return (
+      <View style={{ marginTop: fullPage ? 0 : 56 }}>
+        <SectionTitle icon={<Ic.star color={C.primary2} />}>Daftar Anime</SectionTitle>
+        {sortChips}
+        <View style={[s.hintCenter, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }]}>
+          <Spinner />
+          <Text style={[s.hint, { textAlign: 'center' }]}>Memuat…</Text>
+        </View>
+      </View>
+    )
+  }
+
+  if (!items.length) {
+    return (
+      <View style={{ marginTop: fullPage ? 0 : 56 }}>
+        <SectionTitle icon={<Ic.star color={C.primary2} />}>Daftar Anime</SectionTitle>
+        {sortChips}
+        <Text style={[s.hint, s.hintCenter]}>Tidak ada data.</Text>
+      </View>
+    )
+  }
+
+  // Full page: FlatList for infinite scroll
+  if (fullPage) {
+    return (
+      <View style={{ flex: 1 }}>
+        <SectionTitle icon={<Ic.star color={C.primary2} />}>Daftar Anime</SectionTitle>
+        {sortChips}
+        <FlatList
+          data={items}
+          renderItem={renderItem}
+          keyExtractor={(it, i) => it.id || String(i)}
+          numColumns={cols}
+          columnWrapperStyle={cols > 1 ? { columnGap: gap } : undefined}
+          contentContainerStyle={{ rowGap: gap }}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? <View style={[s.hintCenter, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 24 }]}><Spinner /></View> : null}
+          showsVerticalScrollIndicator={false}
+        />
+      </View>
+    )
+  }
+
+  // Home: collapsed grid with expand
+  return (
+    <View style={{ marginTop: 56 }}>
+      <View style={s.sectionHead}>
+        <Pressable onPress={() => setExpanded(e => !e)} style={[s.iconBtn, { width: 40, height: 40, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.border }]}
+                   accessibilityLabel={expanded ? 'Tutup daftar' : 'Buka semua'}
+                   accessibilityState={{ expanded }}>
+          <View style={expanded ? { transform: [{ rotate: '90deg' }] } : undefined}>
+            <Ic.chev color={C.fgDim} size={18} />
+          </View>
+        </Pressable>
+        <SectionTitle icon={<Ic.star color={C.primary2} />}>Daftar Anime</SectionTitle>
+      </View>
+      {sortChips}
+      <View style={[{ maxHeight: maxH || undefined, overflow: 'hidden' }]}>
+        <View style={gridStyle}>
+          {items.map((it, i) => (
+            <Card key={it.id} item={it} i={i} onPick={onPick}
+                  style={{ width: cardW }}
+                  meta={`${it.score ? '★ ' + it.score : ''}${it.year ? ' · ' + it.year : ''}`} />
+          ))}
+        </View>
+      </View>
+      {showFade && (
+        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 80,
+                       backgroundColor: 'rgba(15,15,35,0)', // transparent placeholder
+                       // Linear gradient approximation via overlapping views
+                       pointerEvents: 'none' }}>
+          <LinearGradient colors={['transparent', C.bg]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFill} />
+        </View>
+      )}
+      {!expanded && !loadingMore && hasMore && items.length >= cols * ROWS && (
+        <Pressable onPress={loadMore} style={[s.hintCenter, { paddingVertical: 16 }]}>
+          <Text style={[s.hint, { color: C.primary2, textAlign: 'center' }]}>Lihat Semua →</Text>
+        </Pressable>
+      )}
+    </View>
   )
 }
 
@@ -1173,9 +1367,10 @@ function pctWidth(j: Job): `${number}%` {
 
 interface FooterProps {
   onJump: (k: string) => void
+  onNavigate: (view: ViewName) => void
 }
 
-function Footer({ onJump }: FooterProps) {
+function Footer({ onJump, onNavigate }: FooterProps) {
   const { desktop } = useBrk()
   return (
     <View style={s.footer}>
@@ -1203,7 +1398,7 @@ function Footer({ onJump }: FooterProps) {
               <Text style={s.footerLinkText}>{text}</Text>
             </Pressable>
           ))}
-          <Pressable onPress={() => onJump('latest')}>
+          <Pressable onPress={() => onNavigate('list')}>
             <Text style={s.footerLinkText}>Daftar Anime</Text>
           </Pressable>
         </View>
