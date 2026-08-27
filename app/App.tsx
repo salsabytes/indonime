@@ -4,7 +4,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ReactNode, RefObject } from 'react'
 import {
-  Animated, BackHandler, FlatList, Modal, Platform, Pressable, ScrollView,
+  Animated, BackHandler, Modal, Platform, Pressable, ScrollView,
   StatusBar as RNStatusBar, StyleSheet, Text, TextInput, useWindowDimensions, View,
 } from 'react-native'
 import type { ImageStyle, NativeScrollEvent, NativeSyntheticEvent, StyleProp, TextStyle, ViewStyle } from 'react-native'
@@ -759,6 +759,7 @@ function AlphaGrid({ onPick, fullPage }: AlphaGridProps) {
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
   const [expanded, setExpanded] = useState(false)
+  const scrollRef2 = useRef<ScrollView>(null)
 
   const PAGE_SIZE = 50
   const ROWS = 3
@@ -805,12 +806,6 @@ function AlphaGrid({ onPick, fullPage }: AlphaGridProps) {
   const maxH = fullPage || expanded ? 0 : rowH * ROWS
   const showFade = !fullPage && !expanded && maxH > 0 && items.length > cols * ROWS
 
-  const renderItem = ({ item, index }: { item: Item; index: number }) => (
-    <Card key={item.id} item={item} i={index} onPick={onPick}
-          style={{ width: cardW }}
-          meta={`${item.score ? '★ ' + item.score : ''}${item.year ? ' · ' + item.year : ''}`} />
-  )
-
   const sortChips = (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
       <View style={s.chips}>
@@ -851,25 +846,31 @@ function AlphaGrid({ onPick, fullPage }: AlphaGridProps) {
     )
   }
 
-  // Full page: FlatList for infinite scroll
+  // Full page: ScrollView + grid (FlatList numColumns unreliable on RN web)
   if (fullPage) {
     return (
       <View style={{ flex: 1 }}>
         <SectionTitle icon={<Ic.star color={C.primary2} />}>Daftar Anime</SectionTitle>
         {sortChips}
-        <FlatList
-          data={items}
-          renderItem={renderItem}
-          keyExtractor={(it, i) => it.id || String(i)}
-          numColumns={cols}
-          columnWrapperStyle={cols > 1 ? { columnGap: gap } : undefined}
-          contentContainerStyle={{ rowGap: gap, paddingBottom: 40 }}
-          style={{ flex: 1 }}
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={loadingMore ? <View style={[s.hintCenter, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 24 }]}><Spinner /></View> : null}
-          showsVerticalScrollIndicator={false}
-        />
+        <ScrollView ref={scrollRef2} style={{ flex: 1 }} showsVerticalScrollIndicator={false}
+                    onScroll={e => {
+                      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
+                      if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 300) loadMore()
+                    }}
+                    scrollEventThrottle={200}>
+          <View style={gridStyle}>
+            {items.map((it, i) => (
+              <Card key={it.id} item={it} i={i} onPick={onPick}
+                    style={{ width: cardW }}
+                    meta={`${it.score ? '★ ' + it.score : ''}${it.year ? ' · ' + it.year : ''}`} />
+            ))}
+          </View>
+          {loadingMore && (
+            <View style={[s.hintCenter, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 24 }]}>
+              <Spinner />
+            </View>
+          )}
+        </ScrollView>
       </View>
     )
   }
