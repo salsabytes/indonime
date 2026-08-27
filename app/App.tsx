@@ -863,7 +863,8 @@ function AlphaGrid({ onPick, fullPage }: AlphaGridProps) {
           keyExtractor={(it, i) => it.id || String(i)}
           numColumns={cols}
           columnWrapperStyle={cols > 1 ? { columnGap: gap } : undefined}
-          contentContainerStyle={{ rowGap: gap }}
+          contentContainerStyle={{ rowGap: gap, paddingBottom: 40 }}
+          style={{ flex: 1 }}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
           ListFooterComponent={loadingMore ? <View style={[s.hintCenter, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 24 }]}><Spinner /></View> : null}
