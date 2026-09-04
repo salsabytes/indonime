@@ -754,7 +754,6 @@ function AlphaGrid({ onPick, fullPage, onOpenList, onBack }: AlphaGridProps) {
   const [loadingMore, setLoadingMore] = useState(false)
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
-  const [expanded, setExpanded] = useState(false)
   const scrollRef2 = useRef<ScrollView>(null)
 
   const PAGE_SIZE = 50
@@ -771,7 +770,7 @@ function AlphaGrid({ onPick, fullPage, onOpenList, onBack }: AlphaGridProps) {
   // Reset on sort change
   useEffect(() => {
     let alive = true
-    setItems([]); setLoading(true); setPage(1); setHasMore(true); setExpanded(false)
+    setItems([]); setLoading(true); setPage(1); setHasMore(true)
     api.discover('alpha', 'sort=' + sort + '&page=1')
       .then(r => { if (alive) { setItems(r.items ?? []); setHasMore((r.items?.length ?? 0) >= PAGE_SIZE) } })
       .catch(() => {})
@@ -799,8 +798,8 @@ function AlphaGrid({ onPick, fullPage, onOpenList, onBack }: AlphaGridProps) {
 
   // Collapsed height: 3 rows
   const rowH = cardW * 1.5 + gap + 32 // poster aspect 2:3 + body text + gap
-  const maxH = fullPage || expanded ? 0 : rowH * ROWS
-  const showFade = !fullPage && !expanded && maxH > 0 && items.length > cols * ROWS
+  const maxH = rowH * ROWS
+  const showFade = maxH > 0 && items.length > cols * ROWS
 
   const sortChips = (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }}>
@@ -880,17 +879,10 @@ function AlphaGrid({ onPick, fullPage, onOpenList, onBack }: AlphaGridProps) {
     )
   }
 
-  // Home: collapsed grid with expand
+  // Home: collapsed grid, Lihat Semua selalu ada -> full page
   return (
     <View style={{ marginTop: 56 }}>
       <View style={s.sectionHead}>
-        <Pressable onPress={() => setExpanded(e => !e)} style={[s.iconBtn, { width: 40, height: 40, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.border }]}
-                   accessibilityLabel={expanded ? 'Tutup daftar' : 'Buka semua'}
-                   accessibilityState={{ expanded }}>
-          <View style={expanded ? { transform: [{ rotate: '90deg' }] } : undefined}>
-            <Ic.chev color={C.fgDim} size={18} />
-          </View>
-        </Pressable>
         <SectionTitle icon={<Ic.star color={C.primary2} />}>Daftar Anime</SectionTitle>
       </View>
       {sortChips}
@@ -911,7 +903,7 @@ function AlphaGrid({ onPick, fullPage, onOpenList, onBack }: AlphaGridProps) {
           <LinearGradient colors={['transparent', C.bg]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFill} />
         </View>
       )}
-      {!expanded && !loadingMore && hasMore && items.length >= cols * ROWS && (
+      {!loadingMore && hasMore && items.length >= cols * ROWS && (
         <Pressable onPress={onOpenList} style={[s.hintCenter, { paddingVertical: 16 }]}>
           <Text style={[s.hint, { color: C.primary2, textAlign: 'center' }]}>Lihat Semua →</Text>
         </Pressable>
