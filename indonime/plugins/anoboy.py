@@ -1,5 +1,5 @@
 # Anoboy provider: search, episodes, download links.
-from ._base import fetch_soup, cached, safe, full_image
+from ._base import catalog_links, fetch_soup, cached, safe, full_image
 
 BASE = 'https://anoboy7.com'
 
@@ -52,6 +52,12 @@ def info(url):
     'image': (BASE + img['src']) if img else '',
     'synopsis': '',
   }
+
+
+@safe([])
+# Full catalog — live fuzzy search source. Cached by _get_catalog, not here.
+def list_all():
+  return catalog_links(fetch_soup(f'{BASE}/anime-list/'), BASE)
 
 
 @safe([])

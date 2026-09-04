@@ -150,6 +150,19 @@ def fetch_soup(url, timeout=15):
   _, _, _, body = http_get(url, timeout=timeout, headers=HEADERS)
   return BeautifulSoup(body.decode('utf-8', 'replace'), 'html.parser')
 
+# Parse anime links from an /anime-list/ page: dedupe, keep /anime/ hrefs,
+# absolutize relative hrefs via base. (v1.6.2 global catalog source)
+def catalog_links(soup, base=''):
+  seen, out = set(), []
+  for a in soup.find_all('a', href=True):
+    href = a['href']
+    if '/anime/' not in href or href in seen:
+      continue
+    seen.add(href)
+    url = href if href.startswith('http') else base + href
+    out.append({'title': a.get_text(' ', strip=True), 'url': url})
+  return out
+
 # Catch-all decorator → fallback value on error.
 def safe(fb):
   def dec(fn):

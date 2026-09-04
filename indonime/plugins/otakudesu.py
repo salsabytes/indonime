@@ -1,5 +1,5 @@
 # Otakudesu provider: search, episodes, download links.
-from ._base import fetch_soup, cached, safe, full_image
+from ._base import catalog_links, fetch_soup, cached, safe, full_image
 
 BASE = 'https://otakudesu.blog'
 
@@ -57,6 +57,12 @@ def info(url):
     'image': (img.get('src') or '') if img else '',
     'synopsis': sinopc.get_text(' ', strip=True) if sinopc else '',
   }
+
+
+@safe([])
+# Full catalog — live fuzzy search source. Cached by _get_catalog, not here.
+def list_all():
+  return catalog_links(fetch_soup(f'{BASE}/anime-list/'), BASE)
 
 
 @safe([])
