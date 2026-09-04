@@ -713,7 +713,7 @@ interface GenreChipsProps {
 
 function GenreChips({ genres, active, onPick }: GenreChipsProps) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 0 }}>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 0, flexGrow: 0, flexShrink: 0 }}>
       <View style={s.chips}>
         {genres.map(g => (
           <Pressable key={g} onPress={() => onPick(g)} style={[s.chip, g === active && { boxShadow: '0 4px 16px rgba(124,58,237,0.4)' }]}
@@ -766,7 +766,7 @@ function AlphaGrid({ onPick, fullPage, onOpenList, onBack }: AlphaGridProps) {
   const min = width <= 480 ? 120 : 160
   const cols = Math.max(1, Math.floor((cw + gap) / (min + gap)))
   const cardW = (cw - gap * (cols - 1)) / cols
-  const gridStyle = [s.grid, { columnGap: gap, rowGap: gap, marginTop: fullPage ? 4 : 16 }]
+  const gridStyle = [s.grid, { columnGap: gap, rowGap: gap, marginTop: fullPage ? 0 : 16 }]
 
   // Reset on sort change
   useEffect(() => {
@@ -803,8 +803,8 @@ function AlphaGrid({ onPick, fullPage, onOpenList, onBack }: AlphaGridProps) {
   const showFade = !fullPage && !expanded && maxH > 0 && items.length > cols * ROWS
 
   const sortChips = (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      <View style={s.chips}>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }}>
+      <View style={[s.chips, fullPage && { marginBottom: 8 }]}>
         {SORT_MODES.map(m => (
           <Pressable key={m.key} onPress={() => setSort(m.key)}
                      style={[s.chip, m.key === sort && { boxShadow: '0 4px 16px rgba(124,58,237,0.4)' }]}
