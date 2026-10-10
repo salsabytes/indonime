@@ -107,13 +107,19 @@ def _walk_boxes(buf):
 # head: decrypted bytes from offset 0. tail: decrypted bytes from tail_off.
 # Returns (mdat_start, moov_start, moov_end), or None when the file is already
 # streamable (faststart MP4 / MKV / not MP4) or the layout is unexpected.
+# 'done-early' = moov up front AND fully inside head: header is already on
+# disk, no range fetch needed — the caller just signals ready and lets the
+# sequential download continue behind mpv.
 def _plan_moov_first(head, tail, file_size, tail_off):
   mdat_start = next((s for t, s, e in _walk_boxes(head) if t == b'mdat'), None)
   if mdat_start is None:
-    return None
+    for t, s, e in _walk_boxes(head):
+      if t == b'moov':
+        return 'done-early'  # faststart, moov fully in head, mdat past head
+    return None  # not MP4 (MKV?) — sequential path detects the format
   moov_in_head = head.find(b'moov')
   if moov_in_head != -1 and moov_in_head < mdat_start:  # moov up front → faststart
-    return None
+    return 'done-early' if _moov_complete(head) else None
   j = tail.rfind(b'moov')
   if j < 4:
     return None
@@ -176,10 +182,17 @@ def _http_range(url, start, end, timeout=30):
     return None
 
 
+# Extra media buffered after the header before mpv may open: the header alone
+# (64KB ftyp+moov) parses but mpv exits(2) — its demuxer probes past the moov
+# into mdat and finds EOF. 2MB mdat opens clean (verified: 64KB→exit 2,
+# head+2MB→600 frames OK on a 41MB Compass 360p file at 0.4MB/s link).
+_STREAM_FLOOR = 2 * 1024 * 1024
+
+
 # Rebuild a non-faststart MP4 as faststart, streaming via range fetches.
 # get_range(start, end) → decrypted bytes [start, end), or None on failure.
 # write(buf): append decrypted bytes to the output file.
-# mark_ready(): called once the header (ftyp+moov) is written → mpv can open.
+# mark_ready(): called once header + _STREAM_FLOOR are on disk → mpv can open.
 # Returns 'done' | 'fallback' (caller should use sequential download)
 # | 'abort' (header already written but the stream broke — stop, don't retry).
 def _write_moov_first(k, iv, file_size, get_range, write, mark_ready):
@@ -194,6 +207,18 @@ def _write_moov_first(k, iv, file_size, get_range, write, mark_ready):
   if tail is None:
     return 'fallback'
   plan = _plan_moov_first(head, tail, file_size, tail_off)
+  if plan == 'done-early':
+    write(head)  # ftyp+moov
+    # Header only isn't playable (mpv demuxer probes into mdat → EOF → exit
+    # 2): buffer _STREAM_FLOOR of media first, then signal ready.
+    floor_end = min(head_len + _STREAM_FLOOR, file_size)
+    if floor_end > head_len:
+      chunk = get_range(head_len & ~15, floor_end)
+      if chunk is None:
+        return 'abort'
+      write(chunk[head_len - (head_len & ~15):])
+    mark_ready()
+    return 'streaming'  # sequential download continues behind mpv (offset-aware)
   if plan is None:
     return 'fallback'
   mdat_start, moov_start, moov_end = plan
@@ -326,10 +351,15 @@ def _run_prefetch(resp, q, stop):
 # rare) falls back to full-download-then-play.
 # Sequential download+decrypt fallback (original flow): full file, then play.
 def _download_sequential(dl_link, k, iv, f, ready, stop, bytes_counter,
-                         early_bytes, mkv_floor, _fmt):
-  f.seek(0)
-  f.truncate()
-  bytes_counter[0] = 0
+                         early_bytes, mkv_floor, _fmt, skip=0):
+  # skip = bytes already on disk (faststart header written by _write_moov_first
+  # 'streaming'): resume decryption at that offset so the file stays contiguous.
+  # MEGA CTR = one continuous counter stream; decrypting from `skip` with the
+  # offset counter produces bytes identical to a sequential run. The socket
+  # stream is discarded up to `skip` — wasteful but correct, and only `skip`
+  # bytes (64KB, one range fetch) since header writes are head-prefixes.
+  f.seek(0, 2)  # append after the header already written (else seek(0)+truncate!)
+  bytes_counter[0] = f.tell()
   response = http_stream(dl_link, timeout=30)
   chunk_queue = queue.Queue(maxsize=2)
   t = threading.Thread(
@@ -339,16 +369,28 @@ def _download_sequential(dl_link, k, iv, f, ready, stop, bytes_counter,
   t.start()
 
   downloaded = 0
+  skipped = 0  # ciphertext discarded until `skip` (header already on disk)
   _first_dec = None
   early_buf = b''  # decrypted bytes up to early_bytes → faststart MP4 check
-  c = Cipher(algorithms.AES(k), modes.CTR(iv))
+  # Offset CTR counter: decrypting from `skip` continues the same keystream
+  # the sequential run would have at that offset (see _decrypt_range).
+  init = int.from_bytes(iv, 'big') + (skip // 16)
+  c = Cipher(algorithms.AES(k), modes.CTR(init.to_bytes(16, 'big')))
   d = c.decryptor()
+  if skip % 16:  # keep 16-alignment: drop the partial first block's head
+    d.update(b'\x00' * (16 - skip % 16))
   while True:
     chunk = chunk_queue.get()
     if chunk is None:
       break
     if isinstance(chunk, Exception):
       raise chunk
+    if skipped < skip:
+      cut = min(len(chunk), skip - skipped)
+      skipped += cut
+      chunk = chunk[cut:]
+      if not chunk:
+        continue
     dec = d.update(chunk)
     f.write(dec)
     if _first_dec is None:
@@ -466,6 +508,12 @@ def resolve_mega_file_stream(url, file_id, err=None):
           return
         if st == 'abort':
           return  # header written, stream broke — mpv plays what's there; retry
+        if st == 'streaming':
+          # Faststart header already on disk + mpv launched: continue the
+          # sequential download behind it (offset-aware, appends after head).
+          _download_sequential(dl_link, k, iv, f, ready, stop, bytes_counter,
+                               early_bytes, mkv_floor, _fmt, skip=f.tell())
+          return  # moov already at front — no reorder needed
 
         # Fallback: sequential download+decrypt (original flow).
         _download_sequential(dl_link, k, iv, f, ready, stop, bytes_counter,

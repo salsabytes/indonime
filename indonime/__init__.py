@@ -157,18 +157,19 @@ def _play_mega(server_url, out=None):
   with progress("📥 Downloading stream...", out=out) as up:
     _stall_t0 = time.time()
     _last_bytes = 0
-    # Wait for the FULL file: unlike the browser (range requests), mpv reads
-    # the local temp file sequentially — launching on a partial faststart file
-    # hits EOF when buffered data runs out and playback dies within seconds.
-    # Loop ends when the downloader exits (full file normally, partial on
-    # abort — either way mpv plays what's on disk instead of hanging).
-    while dl_thread.is_alive():
+    # Tunggu READY (moov header lengkap di file), BUKAN file 100%. Faststart →
+    # mpv launch dalam ~10 detik walau link lemot (0.4MB/s); download lanjut di
+    # belakang dan substitusi lebih cepat dari bitrate 360p, jadi buffer tumbuh
+    # terus. Non-faststart/MKV → ready nyala pas download kelar (fallback lama).
+    while not ready.is_set():
       up(bytes_counter[0])
       done = bytes_counter[0]
       if done != _last_bytes:  # still making progress → reset the stall timer
         _last_bytes = done
         _stall_t0 = time.time()
-      elif time.time() - _stall_t0 > 60:  # 60s without progress = dead connection
+      elif not dl_thread.is_alive():
+        break  # thread mati tanpa ready (abort path) → mainkan yang ada aja
+      elif time.time() - _stall_t0 > 60:  # 60s tanpa progress = dead connection
         print_warning("Download stalled (>60s tanpa progress). Cek koneksi atau retry.")
         stop.set()  # kill the old thread before retry
         return False, None
