@@ -139,8 +139,14 @@ def _play_mega(server_url, out=None):
       if f_id is None:
         print_error("Gagal extract file ID MEGA.")
         return False, None
-      stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id)
+      err = []
+      stream = megaNZ.resolve_mega_file_stream(final_mega_url, f_id, err=err)
       if stream is None:
+        # File Mega mati (mis. API -6 not found = dihapus di sumber) — jangan
+        # diam balik ke menu; kasih alasan + jeda biar kebaca sebelum re-prompt.
+        reason = f" ({err[0]})" if err else ""
+        print_error(f"File Mega tidak tersedia{reason}. Pilih server lain.")
+        time.sleep(3)
         return False, None
       path, ready, stop, dl_thread, bytes_counter, file_size = stream
     except Exception as e:
@@ -249,9 +255,11 @@ def _download_mega(server_url, safe, downloads_dir, out=None, agg=None):
   mega_url = f"https://mega.nz/file/{f_id}#{megakey_raw}"
 
   try:
-    stream = megaNZ.resolve_mega_file_stream(mega_url, f_id)
+    err = []
+    stream = megaNZ.resolve_mega_file_stream(mega_url, f_id, err=err)
     if stream is None:
-      return None, 0, "Gagal resolve stream Mega"
+      reason = f" ({err[0]})" if err else ""
+      return None, 0, f"Gagal resolve stream Mega{reason}"
     path, ready, stop, dl_thread, bytes_counter, file_size = stream
     if agg:
       agg.add_total(safe, file_size)

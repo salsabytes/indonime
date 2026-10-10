@@ -47,5 +47,10 @@ def scrape(url):
     return None
 
   except Exception as e:
+    # 451 = pixeldrain takedown (file dihapus karena laporan legal). Jangan
+    # bocorkan "HTTP Error 451: Unavailable For Legal Reasons" mentah ke user.
+    if '451' in str(e):
+      print(style("⚠ Stream tidak tersedia (mungkin kena takedown)", Palette.warning))
+      return None
     print(style(f"✘ Network Error: {e}", Palette.error))
     return _api_url(url)
