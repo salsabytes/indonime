@@ -143,14 +143,36 @@ def resolve(plugin_list, title, min_score=0.45):
   return out
 
 
-def candidates(plugin_list, title):
-  # All provider search results → UI can show a manual list (when resolve
-  # comes up empty or the user wants to pick).
+def candidates(plugin_list, title, min_score=0.15, limit=6, rel=0.55):
+  # All provider search results → UI manual pick list (saat resolve kosong atau
+  # sumbernya nggak aktif). Tanpa filter ini daftarnya isi judul acak dari
+  # hasil search mentah ("pilihannya ngaco"). Aturan: skor tiap hit, buang yang
+  # di bawah min_score ATAU jauh di bawah hit teratas (< rel × top) — ambang
+  # relatif bikin "Sousou no Frieren" tetap muncul buat query bahasa Inggris
+  # walau skornya rendah, tapi "Futari Solo Camp" nggak ikut buat "Solo
+  # Leveling". Lalu dedupe URL, urut paling mirip, batasi `limit`.
+  # ponytail: alias English→romaji belum dinormalisasi (lihat _score).
   results = _search_all(plugin_list, title)
-  # merge results in plugin_list order
-  out = []
+  qnums = set(re.findall(r'\d+', title))  # "Kaiju No. 8", "86", "Dr. Stone 3"
+  scored, seen = [], set()
   for name, _ in plugin_list:
     hits = (results.get(name) or ([], None))[0]
     for h in hits:
-      out.append((name, h['title'], h['url']))
-  return out
+      url = h.get('url') or ''
+      if not url or url in seen:
+        continue
+      hit_title = h.get('title', '')
+      # Angka di judul itu pembeda keras: "Kaiju No. 8" jangan nawarin
+      # "Kaijuu no Kodomo" cuma karena token 'kaijuu'/'no' kebetulan sama.
+      if qnums and not (qnums & set(re.findall(r'\d+', hit_title))):
+        continue
+      s = _score(title, hit_title)
+      if s < min_score:
+        continue
+      seen.add(url)
+      scored.append((s, name, hit_title, url))
+  if not scored:
+    return []
+  scored.sort(key=lambda x: x[0], reverse=True)  # stabil: skor sama → urutan provider
+  cut = max(min_score, scored[0][0] * rel)
+  return [(name, t, u) for s, name, t, u in scored if s >= cut][:limit]
