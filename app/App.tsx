@@ -24,6 +24,24 @@ import { s } from './src/styles'
 
 const HERO_MS = 6000
 const BRK = 900 // breakpoint web @media (max-width: 900px)
+// Provider utama: selama dia belum jawab, hasil provider lain ditahan dulu.
+const PRIMARY_PROVIDER = 'otakudesu'
+const PRIMARY_GRACE_MS = 4000
+const GRACE = Symbol('grace')
+
+// Tunggu primary maksimal `ms`; lewat itu balikin GRACE (primary masih jalan).
+const withGrace = <T,>(p: Promise<T>, ms: number): Promise<T | typeof GRACE> =>
+  Promise.race([p, new Promise<typeof GRACE>(r => setTimeout(() => r(GRACE), ms))])
+
+// Hasil non-null pertama dari sekumpulan probe; null/error cuma dianggap selesai.
+function firstSettled<T>(ps: Promise<T | null>[]): Promise<T | null> {
+  return new Promise(resolve => {
+    if (!ps.length) return resolve(null)
+    let left = ps.length
+    const done = () => { if (--left === 0) resolve(null) }
+    ps.forEach(p => p.then(v => { if (v) return resolve(v); done() }).catch(done))
+  })
+}
 
 // Breakpoint context: desktop = lebar ≥ 900px (layout web penuh); else layout mobile
 const Brk = createContext({ desktop: false, width: 0 })
@@ -138,44 +156,61 @@ function AppInner() {
       .finally(() => setBusy(''))
   }
 
-  // True only when the provider really serves sources: a live page is not
-  // enough — probe a single episode's download options (dead Mega links are
-  // already filtered server-side, so non-empty == at least one live link).
-  const tryOpen = async (item: Item, prov: string, url: string): Promise<boolean> => {
+  // Cek satu provider tanpa efek samping (pemenang baru di-set setelah race):
+  // info + episodes paralel, lalu probe satu episode biar halaman hidup yang
+  // sumbernya mati nggak dianggap menang.
+  const probeOpen = async (prov: string, url: string): Promise<Omit<AnimeState, 'item'> | null> => {
     try {
       const [info, eps] = await Promise.all([api.info(url, prov), api.episodes(url, prov)])
       const list = eps.episodes || []
       const ep = list[0]
-      let active = false
-      if (ep) {
-        const res = await api.downloads(ep.url, prov)
-        active = !!res.options?.length
-      }
-      if (!active) return false
-      setAnime({ item, provider: prov, url, info: info.info, episodes: list })
-      setView('anime'); setResults(null); setCands(null)
-      scrollTop()
-      return true
-    } catch { return false }  // page error -> provider nonaktif, coba yang lain
+      if (!ep) return null
+      const res = await api.downloads(ep.url, prov)
+      if (!res.options?.length) return null
+      return { provider: prov, url, info: info.info, episodes: list }
+    } catch { return null }  // provider mati -> bukan pemenang
+  }
+
+  const openAnime = (item: Item, w: Omit<AnimeState, 'item'>) => {
+    setAnime({ item, ...w })
+    setView('anime'); setResults(null); setCands(null)
+    scrollTop()
   }
 
   const pickAnime = async (item: Item) => {
     setBusy('Mencari sumber...')
     try {
-      const direct = item.url ? [{
-        prov: item.url.includes('otakudesu') ? 'otakudesu' : 'anoboy',
-        url: item.url,
-      }] : []
-      // Rilis Terbaru: coba url langsung dulu, resolve jadi fallback
-      for (const d of direct) {
-        if (await tryOpen(item, d.prov, d.url)) return
+      // Rilis Terbaru: url langsung dari rail. Selain itu resolve judul dulu.
+      if (item.url) {
+        const prov = item.url.includes('otakudesu') ? 'otakudesu' : 'anoboy'
+        const w = await probeOpen(prov, item.url)
+        if (w) return openAnime(item, w)
       }
-      // multi-provider: search semua provider, gap-fill yang sukses
       const { sources, candidates } = await api.resolve(item.id ?? '', item.title)
-      for (const [prov, url] of Object.entries(sources)) {
-        if (await tryOpen(item, prov, url)) return
+      const targets = Object.entries(sources).map(([prov, url]) => ({ prov, url }))
+      if (!targets.length) { setCands(candidates); return }
+
+      // Semua provider dicek BARENGAN. Otakudesu = primary: selama dia belum
+      // jawab, provider lain yang sudah selesai nggak dipakai — tunggu primary
+      // sampai PRIMARY_GRACE_MS. Lewat itu baru ambil hasil tercepat lainnya.
+      const runs = targets.map(t => ({ t, p: probeOpen(t.prov, t.url) }))
+      const primary = runs.find(r => r.t.prov === PRIMARY_PROVIDER) ?? runs[0]
+      const rest = runs.filter(r => r !== primary)
+
+      const primaryRes = await withGrace(primary.p, PRIMARY_GRACE_MS)
+      // Primary selesai dengan data -> pakai itu. Selesai kosong ATAU lewat
+      // grace -> ambil hasil provider lain (yang sudah jalan barengan).
+      let win = primaryRes === GRACE || primaryRes === null ? null : primaryRes
+      if (!win) {
+        win = rest.length
+          ? await firstSettled(rest.map(r => r.p))
+          : (primaryRes === GRACE ? await primary.p : null)
       }
-      setCands(candidates)  // semua provider tanpa sumber aktif -> pilih manual
+      if (win) return openAnime(item, win)
+      // Sumber hasil resolve semuanya tanpa server aktif: minta daftar kandidat
+      // (yang udah diskor) biar user masih bisa pilih, bukan modal kosong.
+      const alt = await api.resolve(item.id ?? '', item.title, true)
+      setCands(alt.candidates.length ? alt.candidates : candidates)  // fallback: daftar manual
     } catch (err) { setError(eMsg(err)) }
     finally { setBusy('') }
   }

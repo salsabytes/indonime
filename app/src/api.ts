@@ -105,7 +105,8 @@ export const api = {
   discover: (tab: string, params = '') =>
     get<DiscoverResp>(`/api/discover?tab=${tab}${params ? '&' + params : ''}`),
   // identitas discovery → detail URL provider (multi-provider). title wajib.
-  resolve: (id: string, title: string) => post<SourcesResp>('/api/resolve', { id, title }),
+  resolve: (id: string, title: string, withCandidates = false) =>
+    post<SourcesResp>('/api/resolve', { id, title, with_candidates: withCandidates }),
   info: (u: string, p: string) => get<{ info: AnimeInfo }>(`/api/info?url=${encodeURIComponent(u)}&provider=${p}`),
   episodes: (u: string, p: string) => get<{ episodes: Ep[] }>(`/api/episodes?url=${encodeURIComponent(u)}&provider=${p}`),
   downloads: (u: string, p: string) => get<{ options: DownloadOpt[] }>(`/api/downloads?url=${encodeURIComponent(u)}&provider=${p}`),
