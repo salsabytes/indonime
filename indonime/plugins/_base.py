@@ -7,6 +7,7 @@
 import json
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -144,11 +145,45 @@ def cache_clear():
     if k not in _PERSIST:
       del _CACHE[k]
       del _CACHE_AT[k]
+  with _SOUP_GUARD:
+    _SOUP.clear()  # halaman mentah ikut dibuang biar refresh beneran fresh
 
-# GET url → BeautifulSoup. Raises on failure.
-def fetch_soup(url, timeout=15):
-  _, _, _, body = http_get(url, timeout=timeout, headers=HEADERS)
+# GET url → BeautifulSoup. Halaman yang sama dipakai beberapa endpoint
+# (info + episodes) dan diklik barengan, jadi HTML di-cache per URL + single
+# flight: thread kedua nunggu fetch pertama, bukan ikut nembak lagi.
+_SOUP = {}          # url → (ts, body bytes)
+_SOUP_LOCKS = {}    # url → Lock (single flight)
+_SOUP_TTL = 120
+_SOUP_MAX = 40
+_SOUP_GUARD = threading.Lock()
+
+
+def _soup(body):
   return BeautifulSoup(body.decode('utf-8', 'replace'), 'html.parser')
+
+
+def _soup_lock(url):
+  with _SOUP_GUARD:
+    lk = _SOUP_LOCKS.get(url)
+    if lk is None:
+      lk = _SOUP_LOCKS[url] = threading.Lock()
+    return lk
+
+
+def fetch_soup(url, timeout=15):
+  hit = _SOUP.get(url)
+  if hit and time.time() - hit[0] < _SOUP_TTL:
+    return _soup(hit[1])
+  with _soup_lock(url):
+    hit = _SOUP.get(url)  # diisi thread lain selagi nunggu lock
+    if hit and time.time() - hit[0] < _SOUP_TTL:
+      return _soup(hit[1])
+    _, _, _, body = http_get(url, timeout=timeout, headers=HEADERS)
+    with _SOUP_GUARD:
+      if len(_SOUP) >= _SOUP_MAX:
+        _SOUP.pop(next(iter(_SOUP)), None)  # buang yang paling lama masuk
+      _SOUP[url] = (time.time(), body)
+  return _soup(body)
 
 # Parse anime links from an /anime-list/ page: dedupe, keep /anime/ hrefs,
 # absolutize relative hrefs via base. (v1.6.2 global catalog source)
