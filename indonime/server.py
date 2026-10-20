@@ -38,6 +38,15 @@ _mega_stream_lock = threading.Lock()
 # (react-native-web via expo export --platform web). ui/dist replaced by app/dist.
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "dist")
 
+# Windows sering nggak punya entri MIME buat .ttf/.woff → guess_type() = None →
+# octet-stream → FontFace di web (Firefox) nolak dan app nggak pernah render
+# (App return null selama fontsLoaded false). Daftarkan manual.
+for _ext, _type in (
+    ('.ttf', 'font/ttf'), ('.otf', 'font/otf'),
+    ('.woff', 'font/woff'), ('.woff2', 'font/woff2'),
+):
+  mimetypes.add_type(_type, _ext)
+
 _jobs = {}  # job_id → status dict (frontend polls /api/jobs)
 _jobs_lock = threading.Lock()
 _job_seq = [0]
@@ -300,7 +309,11 @@ class _Handler(BaseHTTPRequestHandler):
     if not title:
       return self._json(400, {'error': 'title required'})
     sources = _resolve_urls(self._pool(), title)
-    candidates = [] if sources else _resolve_candidates(self._pool(), title)
+    # Kandidat manual dibutuhkan saat resolve kosong, DAN saat sumber hasil
+    # resolve ternyata tanpa server aktif (frontend minta ulang dengan
+    # with_candidates) — biar UI nggak buka daftar kosong.
+    want = bool(body.get('with_candidates'))
+    candidates = _resolve_candidates(self._pool(), title) if (want or not sources) else []
     return self._json(200, {'id': body.get('id'), 'sources': sources,
                             'candidates': candidates})
 
