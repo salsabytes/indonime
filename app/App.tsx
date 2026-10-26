@@ -72,6 +72,7 @@ function AppInner() {
     Rubik_400Regular, Rubik_500Medium, Rubik_600SemiBold,
   })
   const [top, setTop] = useState<Item[]>([])
+  const [hero, setHero] = useState<Item[]>([])
   const [seasonal, setSeasonal] = useState<Item[]>([])
   const [latest, setLatest] = useState<Item[] | null>(null)
   const [genres, setGenres] = useState<string[]>(['Semua'])
@@ -97,6 +98,7 @@ function AppInner() {
   useEffect(() => {
     let alive = true
     api.discover('top').then(r => alive && setTop(r.items ?? [])).catch(() => {})
+    api.discover('hero').then(r => alive && setHero(r.items ?? [])).catch(() => {})
     api.discover('season').then(r => alive && setSeasonal(r.items ?? [])).catch(() => {})
     api.discover('latest').then(r => alive && setLatest(r.items ?? [])).catch(() => {})
     api.discover('genres').then(r => alive && setGenres(['Semua', ...(r.genres ?? [])])).catch(() => {})
@@ -273,7 +275,7 @@ function AppInner() {
       <ScrollView ref={scrollRef} style={s.scroll} keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}>
         {view === 'home' && (
-          <HomeView top={top} seasonal={seasonal} latest={latest}
+          <HomeView top={top} hero={hero} seasonal={seasonal} latest={latest}
                     genres={genres} genre={genre} onGenrePick={pickGenre}
                     genreItems={genreItems} genreLoading={genreLoading}
                     results={results} searching={searching} query={query}
@@ -423,6 +425,7 @@ function SearchBox({ query, setQuery, onSubmit, style }: SearchBoxProps) {
 
 interface HomeViewProps {
   top: Item[]
+  hero: Item[]
   seasonal: Item[]
   latest: Item[] | null
   genres: string[]
@@ -438,7 +441,7 @@ interface HomeViewProps {
   onOpenList: () => void
 }
 
-function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItems, genreLoading, results, searching, query, onPick, scrollRef, onOpenList }: HomeViewProps) {
+function HomeView({ top, hero, seasonal, latest, genres, genre, onGenrePick, genreItems, genreLoading, results, searching, query, onPick, scrollRef, onOpenList }: HomeViewProps) {
   const { desktop, width } = useBrk()
   // grid web: base auto-fill minmax(160px,1fr) gap 18; ≤480px: minmax(120px,1fr) gap 12
   // container dibatasi wrap max-width 1200 (web .wrap)
@@ -492,7 +495,7 @@ function HomeView({ top, seasonal, latest, genres, genre, onGenrePick, genreItem
 
   return (
     <>
-      {top.length > 0 && <Hero items={top} onPick={onPick} />}
+      {hero.length > 0 && <Hero items={hero} onPick={onPick} />}
 
       <View style={[s.wrap, s.pagePad]}>
         <View style={s.stats} accessibilityLabel="Statistik">

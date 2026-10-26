@@ -2,6 +2,7 @@
 # list source. Public GraphQL, no auth, native urllib (http_post_json),
 # 90 req/min limit → @cached TTL is enough, no throttle.
 import json
+import random
 import re
 
 from .plugins._base import cached, http_post_json
@@ -12,10 +13,11 @@ BASE = 'https://graphql.anilist.co'
 _SEASONS = ['WINTER', 'SPRING', 'SUMMER', 'FALL']
 
 _QUERY = '''query ($page: Int, $perPage: Int, $search: String, $season: MediaSeason,
-                  $seasonYear: Int, $genre: String, $sort: [MediaSort]) {
+                  $seasonYear: Int, $genre: String, $sort: [MediaSort],
+                  $status: MediaStatus) {
   Page(page: $page, perPage: $perPage) {
     media(type: ANIME, search: $search, season: $season, seasonYear: $seasonYear,
-          genre: $genre, sort: $sort) {
+          genre: $genre, sort: $sort, status: $status) {
       id
       title { romaji english }
       coverImage { large extraLarge }
@@ -78,6 +80,28 @@ def seasonal(n=24):
   season = _SEASONS[(now.month - 1) // 3]
   return _get({'perPage': n, 'season': season, 'seasonYear': now.year,
                'sort': ['POPULARITY_DESC']}, n)
+
+
+_HERO_POOL = 50  # ongoing seasonal pool the banner samples from
+_HERO_N = 6
+
+
+@cached(ttl=1800)
+def ongoing(n=_HERO_POOL):
+  # Airing right now in the current season (AniList status RELEASING).
+  import datetime
+  now = datetime.datetime.now()
+  season = _SEASONS[(now.month - 1) // 3]
+  return _get({'perPage': n, 'season': season, 'seasonYear': now.year,
+               'status': 'RELEASING', 'sort': ['POPULARITY_DESC']}, n)
+
+
+def hero(n=_HERO_N):
+  # Random sample per request so the banner rotates; the pool itself is cached.
+  pool = [it for it in ongoing() if it.get('image_full') or it.get('image')]
+  if not pool:
+    return seasonal(n)
+  return random.sample(pool, min(n, len(pool)))
 
 
 @cached(ttl=86400)

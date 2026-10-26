@@ -275,6 +275,9 @@ class _Handler(BaseHTTPRequestHandler):
     tab = q('tab', 'top')
     if tab == 'top':
       return self._json(200, {'items': discovery.top(24)})
+    if tab == 'hero':
+      # Home banner: 6 random anime still airing in the current season.
+      return self._json(200, {'items': discovery.hero()})
     if tab == 'season':
       return self._json(200, {'items': discovery.seasonal(24)})
     if tab == 'genre':
